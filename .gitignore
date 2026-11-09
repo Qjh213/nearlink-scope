@@ -11,6 +11,7 @@ __pycache__/
 *.pyc
 .venv/
 .tools/
+artifacts/firmware/*.fwpkg
 
 # editors
 .vscode/

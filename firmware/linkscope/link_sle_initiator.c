@@ -46,6 +46,7 @@ static volatile uint8_t g_ready;
 static uint8_t g_peer_rssi = SLE_INVALID_RSSI;
 
 static volatile uint32_t g_cfm_n;       /* 写确认次数 */
+static volatile uint32_t g_cfm_print_n; /* 启动后写确认诊断已打印次数；不随统计窗口清零 */
 static volatile uint32_t g_cfm_sum_us;  /* 写确认时延累计（A 本地时钟） */
 static volatile uint32_t g_cfm_max_us;
 static volatile uint32_t g_send_us;     /* 最近一次 Write Request 的时刻 */
@@ -249,8 +250,9 @@ static void on_write_cfm(uint8_t client_id, uint16_t conn_id, ssapc_write_result
     if (lat > g_cfm_max_us) {
         g_cfm_max_us = lat;
     }
-    if (g_cfm_n <= LS_CFM_PRINT_N) {
-        osal_printk("%s [A] write cfm #%u lat=%u us\r\n", LS_LOG, (uint32_t)g_cfm_n, lat);
+    if (g_cfm_print_n < LS_CFM_PRINT_N) {
+        g_cfm_print_n++;
+        osal_printk("%s [A] write cfm #%u lat=%u us\r\n", LS_LOG, (uint32_t)g_cfm_print_n, lat);
     }
 #else
     unused(client_id);

@@ -1,0 +1,22 @@
+# build
+out/
+build/
+*.o
+*.bin
+*.elf
+*.map
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.tools/
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# os
+Thumbs.db
+.DS_Store

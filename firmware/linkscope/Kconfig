@@ -1,0 +1,121 @@
+# =============================================================================
+# LinkScope（星闪链路体检仪）配置
+# 编译期定角色：一次构建一种角色，两块板各烧一次。
+# 运行期切角色（串口命令）放到 W3 再做。
+# =============================================================================
+
+menu "LinkScope Configuration"
+
+config LINK_SCOPE_CFG_ID
+    int "Experiment config id (written into every REQ)"
+    range 0 65535
+    default 0
+    help
+        实验配置编号。同一批数据用同一个 id，事后好归因。
+
+choice
+    prompt "LinkScope role"
+    default LINK_SCOPE_ROLE_INITIATOR
+
+config LINK_SCOPE_ROLE_INITIATOR
+    bool "Initiator (A): send REQ, measure RTT"
+
+config LINK_SCOPE_ROLE_RESPONDER
+    bool "Responder (B): echo REQ with t2/t3"
+
+config LINK_SCOPE_ROLE_LOOPBACK
+    bool "Loopback (no radio): measure tool noise floor"
+
+config LINK_SCOPE_ROLE_TIMING
+    bool "Timing: hello_timing (time base + scheduler jitter)"
+endchoice
+
+choice
+    prompt "LinkScope transport (initiator/responder 用)"
+    default LINK_SCOPE_LINK_SLE
+
+config LINK_SCOPE_LINK_SLE
+    bool "SLE (星闪)"
+
+config LINK_SCOPE_LINK_BLE
+    bool "BLE (同板对照：同一颗芯片、同一根天线)"
+endchoice
+
+config LINK_SCOPE_PROBE_HZ
+    int "Probe rate (Hz)"
+    range 1 1000
+    default 100
+    help
+        发起端发包节奏。100Hz 需要协议栈调度能跟上，先用 100Hz 验证。
+
+config LINK_SCOPE_PAYLOAD_BYTES
+    int "REQ frame size (bytes, 12..250)"
+    range 12 250
+    default 40
+    help
+        REQ 整帧字节数（含 12B 头）。默认 40B；250B 需要 MTU 520 + 性能模式。
+
+config LINK_SCOPE_WINDOW
+    int "In-flight window (1 = stop-and-wait, up to 8)"
+    range 1 8
+    default 1
+    help
+        同时在途的请求数。1 = 停等（W1 默认，丢包口径最干净）。
+        P26 实测停等往返底线 24ms、上限 41 包/秒；要更高吞吐必须放开在途，
+        用这个参数做流水线与停等的对照实验。
+
+config LINK_SCOPE_TIMEOUT_MS
+    int "RSP timeout (ms)"
+    range 1 5000
+    default 500
+    help
+        超时即判丢包。停等模式下超时后才发下一包。
+
+config LINK_SCOPE_INTV_SLOT
+    int "Fixed connection interval in slots (0 = sweep 0.75/3/6/8/12.5ms)"
+    range 0 8000
+    default 0
+    help
+        单位为 slot（1 slot = 125us）。0 = 每 20s 自动换一档做扫描（诊断用）；
+        正式采数据时填具体值（例如 24 = 3ms，实测能生效的最小间隔），配置才可复现。
+
+config LINK_SCOPE_LOOP_US
+    int "Main loop granularity (us, busy-wait)"
+    range 100 10000
+    default 500
+    help
+        任务循环的忙等粒度。osal_msleep(1) 受 10ms tick 限制，所以这里用忙等。
+        500us 对应最高 ~2000 次/秒的检查频率，100Hz 发包足够。
+
+config LINK_SCOPE_TASK_PRIO
+    int "Task priority"
+    range 0 31
+    default 28
+    help
+        默认与官方样例一致（28）。W2 会对比提优先级前后的噪声底。
+
+config LINK_SCOPE_RAW_PRINT
+    bool "Print every sample as CSV (seq,t1,t4,rtt,...)"
+    default y
+    help
+        关掉后只打印 SUM 汇总行，串口压力最小。
+
+config LINK_SCOPE_STATS_EVERY
+    int "Print summary every N samples"
+    range 0 100000
+    default 200
+
+config LINK_SCOPE_RUN_SELFTEST
+    bool "Run probe/stats self-test at boot"
+    default y
+    help
+        上电跑一遍纯逻辑自检，打印 pass/fail。建议 W1/W2 保持开启。
+
+config LINK_SCOPE_TIMING_GPIO
+    int "GPIO pin to toggle in timing test"
+    range 0 31
+    default 2
+    help
+        默认 GPIO2（板载蓝色用户灯）。有逻辑分析仪时可直接看翻转间隔。
+
+endmenu

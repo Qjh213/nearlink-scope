@@ -1,0 +1,3 @@
+69df8b773663c59161d0fded80d59ff97817a04261f1c85b7908215797c590e6  linkscope-sle-write_cmd-initiator-40hz-40b-w1-intv24.fwpkg
+333d6f55364d2f6b7d41fbdb3abbf243c66f48070811e9a93f2467df3b2baf23  linkscope-sle-responder-write_dual-40b.fwpkg
+ea098117bc5c89a4e8ea501db2689990fe9d3cd4a7128342225c4c7c563068c0  linkscope-sle-write_req-initiator-40hz-40b-w1-intv24.fwpkg

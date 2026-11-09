@@ -79,6 +79,21 @@ config LINK_SCOPE_INTV_SLOT
         单位为 slot（1 slot = 125us）。0 = 每 20s 自动换一档做扫描（诊断用）；
         正式采数据时填具体值（例如 24 = 3ms，实测能生效的最小间隔），配置才可复现。
 
+choice
+    prompt "SLE write procedure"
+    default LINK_SCOPE_SLE_WRITE_REQUEST
+    depends on LINK_SCOPE_LINK_SLE
+    help
+        Write Request 会产生写确认，可单独观测确认时延；Write Command 不等待协议层写确认，
+        更接近 BLE 对照链路当前采用的无响应写语义。两种模式仍以 LinkScope 的 RSP 帧计算 RTT。
+
+config LINK_SCOPE_SLE_WRITE_REQUEST
+    bool "Write Request (with protocol confirmation)"
+
+config LINK_SCOPE_SLE_WRITE_COMMAND
+    bool "Write Command (without protocol confirmation)"
+endchoice
+
 config LINK_SCOPE_LOOP_US
     int "Main loop granularity (us, busy-wait)"
     range 100 10000

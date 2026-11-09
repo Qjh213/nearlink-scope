@@ -64,6 +64,16 @@ S,1,1048576,1048599,23,4,12
 .\firmware\scripts\sync-to-sdk.ps1 -Role initiator
 ```
 
+SLE 发起端默认使用有确认的 Write Request。若要与 BLE 当前的无响应写语义做更公平的对照：
+
+```powershell
+.\firmware\scripts\sync-to-sdk.ps1 -Role initiator -Link sle -SleWriteMode command
+```
+
+服务端属性同时声明 `WRITE` 与 `WRITE_NO_RSP`，因此同一份 responder 固件可接收两种写入。
+Write Request 模式会额外输出协议层写确认时延；Write Command 没有该确认，RTT 仍以应用层
+REQ/RSP 帧的 `t4-t1` 为准。日志中的链路名分别为 `sle-write_req` 和 `sle-write_cmd`，避免混淆数据。
+
 ```bash
 # Ubuntu 虚拟机
 cd /home/bearpi/project/bearpi-pico_h3863-master
@@ -90,4 +100,4 @@ cd firmware/linkscope/test && ./run_host_test.sh     # Ubuntu，用 gcc
 - **停等发包**：一次只有一包在途，丢包口径干净；代价是超时期间发不出包（对端掉线时速率降到 1/timeout）。吞吐实验到 W3 再放开。
 - **忙等主循环**（`LINK_SCOPE_LOOP_US=500`）：`osal_msleep(1)` 在 100Hz tick 下实际是 10ms，做不到 100Hz 的检查频率，所以主循环用 `osal_udelay` 忙等。
 - **收包回调不打印**：t4 取完就进环形缓冲，打印在任务上下文做，避免 UART 反压污染被测链路。
-- **上行发送缓冲是静态的**：`ssapc_write_req` 是异步接口，不能把栈地址交给它。
+- **上行发送缓冲是静态的**：`ssapc_write_req` / `ssapc_write_cmd` 是异步接口，不能把栈地址交给它。

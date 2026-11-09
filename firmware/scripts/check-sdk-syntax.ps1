@@ -15,7 +15,9 @@
 #>
 param(
     [string]$SdkRoot = 'Z:\home\bearpi\project\bearpi-pico_h3863-master',
-    [string]$SrcDir  = (Join-Path (Split-Path $PSCommandPath -Parent) '..\linkscope')
+    [string]$SrcDir  = (Join-Path (Split-Path $PSCommandPath -Parent) '..\linkscope'),
+    [ValidateSet('request', 'command')]
+    [string]$SleWriteMode = 'request'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +34,9 @@ $rel = @(
     'include\middleware\services\bts\ble',
     'include\middleware\services\bts\common',
     'kernel\osal\include',
+    'kernel\osal\include\debug',
+    'kernel\osal\include\memory',
+    'kernel\osal\include\schedule',
     'kernel\osal\include\soc_osal',
     'open_source\libboundscheck\include',
     'middleware\utils\app_init',
@@ -42,6 +47,7 @@ $rel = @(
     'drivers\drivers\hal\pinmux\common',
     'drivers\chips\ws63\porting\gpio',
     'drivers\chips\ws63\porting\pinctrl'
+    'drivers\boards\ws63\evb\memory_config\include\product'
 )
 
 $incs = @()
@@ -51,6 +57,11 @@ foreach ($r in $rel) {
 }
 
 $defs = @('-DCHIP_WS63=1', '-DCHIP_VERSION=1', '-DBOARD_ASIC', '-DPRE_ASIC', '-DCORE=APPS')
+if ($SleWriteMode -eq 'command') {
+    $defs += '-DCONFIG_LINK_SCOPE_SLE_WRITE_COMMAND=1'
+} else {
+    $defs += '-DCONFIG_LINK_SCOPE_SLE_WRITE_REQUEST=1'
+}
 $flags = @('-std=c99', '-Wall', '-Wextra', '-c') + $defs + $incs
 
 $out = Join-Path (Split-Path $PSCommandPath -Parent) '..\..\.tools\build\syntax'
@@ -58,8 +69,13 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 $env:ZIG_GLOBAL_CACHE_DIR = Join-Path $out 'zig-cache'
 $env:ZIG_LOCAL_CACHE_DIR  = Join-Path $out 'zig-cache'
 
-# 只编板子上的源码：sle\ 下是官方样例（原样拷贝，不检查）
-$files = Get-Item (Join-Path $SrcDir '*.c')
+# 根目录是 LinkScope 逻辑；sle\ 下虽然源自官方样例，但服务属性已被 LinkScope 修改，
+# 也必须纳入语法检查，避免只验证 initiator、漏掉 responder 构建错误。
+$files = @(
+    Get-Item (Join-Path $SrcDir '*.c')
+    Get-Item (Join-Path $SrcDir 'sle\sle_uart_server.c')
+    Get-Item (Join-Path $SrcDir 'sle\sle_uart_server_adv.c')
+)
 $fail = 0
 foreach ($f in $files) {
     $o = Join-Path $out ($f.BaseName + '.o')
@@ -81,4 +97,4 @@ foreach ($f in $files) {
 }
 
 if ($fail -gt 0) { throw "$fail 个文件编不过" }
-Write-Host "全部 $($files.Count) 个 .c 通过（真 SDK 头文件）" -ForegroundColor Green
+Write-Host "全部 $($files.Count) 个 .c 通过（真 SDK 头文件，SLE write=$SleWriteMode）" -ForegroundColor Green

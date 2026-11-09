@@ -9,6 +9,7 @@
 #include "common_def.h"
 #include "securec.h"
 #include "soc_osal.h"
+#include "osal_addr.h"
 #include "sle_errcode.h"
 #include "sle_connection_manager.h"
 #include "sle_device_discovery.h"
@@ -181,7 +182,7 @@ static errcode_t sle_uuid_server_property_add(void)
     uint8_t ntf_value[] = {0x01, 0x0};
 
     property.permissions = SLE_UUID_TEST_PROPERTIES;
-    property.operate_indication = SSAP_OPERATE_INDICATION_BIT_READ | SSAP_OPERATE_INDICATION_BIT_NOTIFY;
+    property.operate_indication = SLE_UUID_TEST_OPERATION_INDICATION;
     sle_uuid_setu2(SLE_UUID_SERVER_NTF_REPORT, &property.uuid);
     property.value = (uint8_t *)osal_vmalloc(sizeof(g_sle_property_value));
     if (property.value == NULL) {

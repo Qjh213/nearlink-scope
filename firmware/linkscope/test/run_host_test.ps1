@@ -13,6 +13,8 @@ Set-Location (Split-Path $PSCommandPath -Parent)
 
 $out = (Join-Path (Resolve-Path '..\..\..\.tools\build\host-test') '').TrimEnd('\', '/')
 New-Item -ItemType Directory -Force -Path $out | Out-Null
+$pyDir = (Join-Path (Resolve-Path '..\..\..') '.tools\py')
+if (Test-Path $pyDir) { $env:PYTHONPATH = $pyDir }
 
 function Get-Cc {
     if (Get-Command gcc -ErrorAction SilentlyContinue) { return @('gcc') }
@@ -24,20 +26,36 @@ function Get-Cc {
     $tmp = Join-Path $out 'tmp'
     New-Item -ItemType Directory -Force -Path $tmp | Out-Null
     $env:TMPDIR = $tmp; $env:TMP = $tmp; $env:TEMP = $tmp
-    try { python -m ziglang version | Out-Null; return @('python', '-m', 'ziglang', 'cc') } catch { }
+    $probe = & python -m ziglang version 2>$null
+    if ($LASTEXITCODE -eq 0 -and $probe) { return @('python', '-m', 'ziglang', 'cc') }
     throw '没有找到 C 编译器：装 gcc/clang，或 pip install --target .tools\py ziglang 后设置 PYTHONPATH'
 }
 
 $cc = Get-Cc
 $common = @('-std=c99', '-Wall', '-Wextra')
+Write-Host "compiler: $($cc -join ' ')" -ForegroundColor DarkGray
+
+function Invoke-Compile([string[]]$CompileArgs, [string]$Output) {
+    Remove-Item -LiteralPath $Output -Force -ErrorAction SilentlyContinue
+    if ($cc.Count -gt 1) {
+        & $cc[0] @($cc[1..($cc.Count - 1)]) @CompileArgs
+    } else {
+        & $cc[0] @CompileArgs
+    }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Output)) {
+        throw "compile failed: $Output (exit=$LASTEXITCODE)"
+    }
+}
 
 Write-Host '== 1/2 probe + stats 自检 ==' -ForegroundColor Cyan
-& $cc[0] @($cc[1..($cc.Count-1)]) @common '-DLS_HOST_TEST' '-I..' '../selftest.c' '../probe.c' '../stats.c' 'host_main.c' '-o' "$out/ls_selftest.exe"
+Invoke-Compile (@($common) + @('-DLS_HOST_TEST', '-I..', '../selftest.c', '../probe.c', '../stats.c',
+    'host_main.c', '-o', "$out/ls_selftest.exe")) "$out/ls_selftest.exe"
 & "$out/ls_selftest.exe"
 if ($LASTEXITCODE -ne 0) { throw "selftest failed ($LASTEXITCODE)" }
 
 Write-Host '== 2/2 engine + loopback 集成测试 ==' -ForegroundColor Cyan
-& $cc[0] @($cc[1..($cc.Count-1)]) @common '-Ishim' '-I..' '../engine.c' '../link_loopback.c' '../probe.c' '../stats.c' 'host_engine_test.c' '-o' "$out/ls_engine_test.exe"
+Invoke-Compile (@($common) + @('-Ishim', '-I..', '../engine.c', '../link_loopback.c', '../probe.c', '../stats.c',
+    'host_engine_test.c', '-o', "$out/ls_engine_test.exe")) "$out/ls_engine_test.exe"
 & "$out/ls_engine_test.exe"
 if ($LASTEXITCODE -ne 0) { throw "engine test failed ($LASTEXITCODE)" }
 

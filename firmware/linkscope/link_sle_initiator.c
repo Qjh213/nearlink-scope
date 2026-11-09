@@ -1,5 +1,5 @@
 /*
- * SLE 发起端（A）：seek -> connect -> pair -> MTU -> 发现属性 -> 写 REQ / 收 RSP。
+ * SLE 发起端（A）：seek -> connect -> pair -> MTU -> 发现属性 -> 写入 / 收 RSP。
  *
  * 与官方 sle_uart 客户端样例的差别：
  *   - 去掉每次写确认都打印（会污染被测对象的调度）；
@@ -48,7 +48,7 @@ static uint8_t g_peer_rssi = SLE_INVALID_RSSI;
 static volatile uint32_t g_cfm_n;       /* 写确认次数 */
 static volatile uint32_t g_cfm_sum_us;  /* 写确认时延累计（A 本地时钟） */
 static volatile uint32_t g_cfm_max_us;
-static volatile uint32_t g_send_us;     /* 最近一次 ssapc_write_req 的时刻 */
+static volatile uint32_t g_send_us;     /* 最近一次 Write Request 的时刻 */
 static uint32_t g_ready_us;             /* 链路就绪时刻 */
 static uint32_t g_last_tune_us;         /* 上次发连接的参数更新请求的时刻 */
 static uint8_t g_sweep_idx;
@@ -233,6 +233,7 @@ static void on_find_complete(uint8_t client_id, uint16_t conn_id, ssapc_find_str
 
 static void on_write_cfm(uint8_t client_id, uint16_t conn_id, ssapc_write_result_t *result, errcode_t status)
 {
+#if defined(CONFIG_LINK_SCOPE_SLE_WRITE_REQUEST)
     uint32_t now = ls_now_us();
     uint32_t lat = (uint32_t)(now - g_send_us);   /* 写请求 -> 写确认，A 本地时钟，精确 */
 
@@ -251,6 +252,12 @@ static void on_write_cfm(uint8_t client_id, uint16_t conn_id, ssapc_write_result
     if (g_cfm_n <= LS_CFM_PRINT_N) {
         osal_printk("%s [A] write cfm #%u lat=%u us\r\n", LS_LOG, (uint32_t)g_cfm_n, lat);
     }
+#else
+    unused(client_id);
+    unused(conn_id);
+    unused(result);
+    unused(status);
+#endif
 }
 
 /* 连接参数更新结果：granted interval 的单位是 slot（125us） */
@@ -336,8 +343,12 @@ static int sle_send(const uint8_t *data, uint16_t len)
     }
     g_write_param.data = (uint8_t *)data;
     g_write_param.data_len = len;
+#if defined(CONFIG_LINK_SCOPE_SLE_WRITE_COMMAND)
+    return (ssapc_write_cmd(0, g_conn_id, &g_write_param) == ERRCODE_SLE_SUCCESS) ? 0 : -1;
+#else
     g_send_us = ls_now_us();        /* 与写确认配对，量"发出 -> 确认"这一段 */
     return (ssapc_write_req(0, g_conn_id, &g_write_param) == ERRCODE_SLE_SUCCESS) ? 0 : -1;
+#endif
 }
 
 static uint8_t sle_ready(void)
@@ -415,7 +426,11 @@ static void sle_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us)
 }
 
 static const link_ops_t g_sle_ops = {
-    .name = "sle",
+#if defined(CONFIG_LINK_SCOPE_SLE_WRITE_COMMAND)
+    .name = "sle-write_cmd",
+#else
+    .name = "sle-write_req",
+#endif
     .start = sle_start,
     .send = sle_send,
     .ready = sle_ready,

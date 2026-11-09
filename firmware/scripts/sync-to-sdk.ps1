@@ -27,6 +27,8 @@ param(
     [int]$IntvSlot = 0,
     [ValidateSet('sle', 'ble')]
     [string]$Link = 'sle',
+    [ValidateSet('request', 'command')]
+    [string]$SleWriteMode = 'request',
     [switch]$Quiet,
     [switch]$NoConfig
 )
@@ -147,6 +149,13 @@ if (-not $NoConfig -and $Role -ne 'none') {
     foreach ($k in 'SLE', 'BLE') {
         if ($k -ieq $Link.ToUpper()) { Set-Cfg "CONFIG_LINK_SCOPE_LINK_$k" 'y' } else { Set-Cfg "CONFIG_LINK_SCOPE_LINK_$k" $null }
     }
+    if ($SleWriteMode -eq 'command') {
+        Set-Cfg 'CONFIG_LINK_SCOPE_SLE_WRITE_REQUEST' $null
+        Set-Cfg 'CONFIG_LINK_SCOPE_SLE_WRITE_COMMAND' 'y'
+    } else {
+        Set-Cfg 'CONFIG_LINK_SCOPE_SLE_WRITE_REQUEST' 'y'
+        Set-Cfg 'CONFIG_LINK_SCOPE_SLE_WRITE_COMMAND' $null
+    }
     Set-Cfg 'CONFIG_LINK_SCOPE_CFG_ID' '0'
     Set-Cfg 'CONFIG_LINK_SCOPE_PROBE_HZ' ([string]$Hz)
     Set-Cfg 'CONFIG_LINK_SCOPE_PAYLOAD_BYTES' ([string]$Payload)
@@ -166,7 +175,7 @@ if (-not $NoConfig -and $Role -ne 'none') {
 
     [System.IO.File]::Copy($appcfg, "$appcfg.bak.linkscope", $true)
     Write-TextLf $appcfg ($lines -join "`n")
-    Write-Host "[4/4] .config 已切到 role=$Role（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
+    Write-Host "[4/4] .config 已切到 role=$Role link=$Link sle-write=$SleWriteMode（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
 }
 
 Write-Host ""

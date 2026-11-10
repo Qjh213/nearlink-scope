@@ -150,7 +150,21 @@ class ScopeApp:
                 if stop_event.is_set():
                     return
                 try:
-                    handle = serial_module.Serial(port, 115200, timeout=.2)
+                    # 与 QCOM 的 115200/8N1/无流控、DTR/RTS 未勾选保持一致。
+                    # CH340 的控制线可能接入下载/复位电路，不能依赖 pyserial 的默认有效电平。
+                    handle = serial_module.Serial(
+                        port=port,
+                        baudrate=115200,
+                        bytesize=serial_module.EIGHTBITS,
+                        parity=serial_module.PARITY_NONE,
+                        stopbits=serial_module.STOPBITS_ONE,
+                        timeout=.2,
+                        xonxoff=False,
+                        rtscts=False,
+                        dsrdtr=False,
+                    )
+                    handle.dtr = False
+                    handle.rts = False
                     break
                 except Exception as exc:
                     last_error = exc
@@ -309,7 +323,19 @@ def main() -> int:
         session = Session()
         deadline = time.monotonic() + max(0.1, args.duration)
         try:
-            with serial.Serial(args.serial, 115200, timeout=.2) as handle:
+            with serial.Serial(
+                port=args.serial,
+                baudrate=115200,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=.2,
+                xonxoff=False,
+                rtscts=False,
+                dsrdtr=False,
+            ) as handle:
+                handle.dtr = False
+                handle.rts = False
                 while time.monotonic() < deadline:
                     raw = handle.readline()
                     if raw:

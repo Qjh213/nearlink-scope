@@ -37,6 +37,8 @@ python -m pip install -r tools\requirements.txt
 ```
 
 然后选择 COM3，点击“开始串口”。QCOM 等其他串口软件必须先关闭，避免同一串口被独占。
+LinkScope 明确使用 `115200 / 8N1 / no flow control / DTR off / RTS off`，与 QCOM 未勾选 DTR/RTS
+时保持一致，避免 CH340 控制线影响复位或下载模式。
 
 也可以无界面采集10秒并导出，便于验收和自动化：
 

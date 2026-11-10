@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines
+from nlscope import discover_serial_ports
 
 
 LINES = [
@@ -20,6 +21,11 @@ LINES = [
 
 
 class ParserTests(unittest.TestCase):
+    def test_port_discovery_shape(self):
+        for device, display in discover_serial_ports():
+            self.assertTrue(device)
+            self.assertTrue(display.startswith(device + " — "))
+
     def test_signature_and_metrics(self):
         session = feed_lines(LINES)
         self.assertEqual(session.signature.role, "initiator")

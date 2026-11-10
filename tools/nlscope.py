@@ -5,12 +5,33 @@ from __future__ import annotations
 
 import argparse
 import queue
+import re
 import sys
 import threading
 import time
 from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
+
+
+def discover_serial_ports() -> list[tuple[str, str]]:
+    """返回 [(device, display)]；无 pyserial 或无设备时返回空列表。"""
+    try:
+        from serial.tools import list_ports  # type: ignore
+    except ImportError:
+        return []
+
+    def key(item) -> tuple[str, int, str]:
+        match = re.fullmatch(r"([A-Za-z]+)(\d+)", item.device or "")
+        if match:
+            return match.group(1).upper(), int(match.group(2)), item.device
+        return item.device.upper(), 0, item.device
+
+    found = []
+    for item in sorted(list_ports.comports(), key=key):
+        description = (item.description or "串口设备").strip()
+        found.append((item.device, f"{item.device} — {description}"))
+    return found
 
 
 def print_summary(session: Session) -> None:
@@ -46,8 +67,11 @@ class ScopeApp:
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
         ttk.Label(controls, text="串口").pack(side="left")
-        self.port = tk.StringVar(value="COM3")
-        ttk.Entry(controls, textvariable=self.port, width=10).pack(side="left", padx=(4, 8))
+        self.port = tk.StringVar(value="")
+        self.port_map: dict[str, str] = {}
+        self.port_combo = ttk.Combobox(controls, textvariable=self.port, width=31, state="readonly")
+        self.port_combo.pack(side="left", padx=(4, 4))
+        ttk.Button(controls, text="刷新", command=self.refresh_ports, width=6).pack(side="left", padx=(0, 8))
         ttk.Button(controls, text="开始串口", command=self.start_serial).pack(side="left")
         ttk.Button(controls, text="打开日志", command=self.open_log).pack(side="left", padx=6)
         ttk.Button(controls, text="停止", command=self.stop).pack(side="left")
@@ -84,6 +108,22 @@ class ScopeApp:
             canvas.bind("<Configure>", lambda _e: self.draw())
 
         self.root.after(100, self.poll)
+        self.refresh_ports(preferred="COM3")
+
+    def refresh_ports(self, preferred: str | None = None) -> None:
+        current_display = self.port.get()
+        current_device = self.port_map.get(current_display, preferred or "")
+        ports = discover_serial_ports()
+        self.port_map = {display: device for device, display in ports}
+        displays = list(self.port_map)
+        self.port_combo["values"] = displays
+        if not displays:
+            self.port.set("未检测到串口")
+            self.status.set("未检测到串口：请连接开发板后点击刷新")
+            return
+        selected = next((display for display, device in self.port_map.items() if device == current_device), displays[0])
+        self.port.set(selected)
+        self.status.set(f"已识别 {len(displays)} 个串口")
 
     def _new_session(self, source: str) -> None:
         self.session = Session()
@@ -140,7 +180,12 @@ class ScopeApp:
             from tkinter import messagebox
             messagebox.showerror("缺少依赖", "实时串口需要 pyserial：\npython -m pip install -r tools/requirements.txt\n历史日志回放不受影响。")
             return
-        port = self.port.get().strip()
+        display = self.port.get().strip()
+        port = self.port_map.get(display, "")
+        if not port:
+            from tkinter import messagebox
+            messagebox.showerror("没有可用串口", "请连接开发板并点击“刷新”。")
+            return
         source_id, stop_event = self._begin_source(port)
         self.strict_live_gate = True
         self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")

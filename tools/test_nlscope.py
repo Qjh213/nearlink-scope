@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines
-from nlscope import discover_serial_ports
+from nlscope import ScopeApp, discover_serial_ports
 
 
 LINES = [
@@ -26,6 +26,10 @@ class ParserTests(unittest.TestCase):
             self.assertTrue(device)
             self.assertTrue(display.startswith(device + " — "))
 
+    def test_duration_format(self):
+        self.assertEqual(ScopeApp._format_duration(0), "00:00:00")
+        self.assertEqual(ScopeApp._format_duration(3661.9), "01:01:01")
+
     def test_signature_and_metrics(self):
         session = feed_lines(LINES)
         self.assertEqual(session.signature.role, "initiator")
@@ -41,6 +45,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(metrics["jitter_us"], 2500.0)
         self.assertEqual(metrics["to"], 1)
         self.assertEqual(metrics["dup"], 1)
+        self.assertEqual(metrics["sample_span_s"], 0.02)
 
     def test_plain_csv_without_qcom_timestamp(self):
         parser = LineParser()

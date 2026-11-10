@@ -9,6 +9,7 @@ import re
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
@@ -60,6 +61,8 @@ class ScopeApp:
         self.source_label = "idle"
         self.strict_live_gate = False
         self.pre_ready_samples = 0
+        self.capture_started_monotonic: float | None = None
+        self.capture_frozen_seconds = 0.0
         self.session = Session()
         self.parser = LineParser()
         self.last_draw_n = -1
@@ -86,13 +89,17 @@ class ScopeApp:
         metrics = ttk.Frame(root, padding=(8, 6))
         metrics.pack(fill="x")
         self.metric_vars = {}
-        for name in ("n", "p50精确", "p90精确", "p99精确", "p99.9精确", "max", "jitter", "timeout", "dup", "ooo", "bad", "drop"):
+        metric_names = ("采集时长", "n", "p50精确", "p90精确", "p99精确", "p99.9精确", "max",
+                        "jitter", "timeout", "dup", "ooo", "bad", "drop")
+        for index, name in enumerate(metric_names):
             box = ttk.Frame(metrics, padding=5)
-            box.pack(side="left", expand=True)
+            box.grid(row=index // 7, column=index % 7, sticky="ew")
             ttk.Label(box, text=name, foreground="#587184").pack()
             var = tk.StringVar(value="—")
             ttk.Label(box, textvariable=var, font=("Segoe UI", 11, "bold")).pack()
             self.metric_vars[name] = var
+        for column in range(7):
+            metrics.columnconfigure(column, weight=1)
 
         charts = ttk.Frame(root, padding=8)
         charts.pack(fill="both", expand=True)
@@ -130,6 +137,8 @@ class ScopeApp:
         self.parser = LineParser(source=source)
         self.source_label = source
         self.pre_ready_samples = 0
+        self.capture_started_monotonic = None
+        self.capture_frozen_seconds = 0.0
         self.last_draw_n = -1
 
     def _begin_source(self, source: str) -> tuple[int, threading.Event]:
@@ -152,8 +161,28 @@ class ScopeApp:
         self.draw(force=True)
 
     def stop(self) -> None:
+        self._freeze_capture()
         self.stop_event.set()
         self.status.set("已停止")
+
+    def _freeze_capture(self) -> None:
+        if self.capture_started_monotonic is not None:
+            self.capture_frozen_seconds = time.monotonic() - self.capture_started_monotonic
+            self.capture_started_monotonic = None
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        total = max(0, int(seconds))
+        hours, remainder = divmod(total, 3600)
+        minutes, secs = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def _capture_seconds(self) -> float:
+        if not self.strict_live_gate:
+            return self.session.sample_span_seconds()
+        if self.capture_started_monotonic is not None:
+            return time.monotonic() - self.capture_started_monotonic
+        return self.capture_frozen_seconds
 
     def open_log(self) -> None:
         from tkinter import filedialog
@@ -241,14 +270,18 @@ class ScopeApp:
             if source_id != self.source_id:
                 continue
             if item is None:
+                self._freeze_capture()
                 self.status.set(f"数据源结束，共 {len(self.session.samples)} 个样本")
             elif isinstance(item, Exception):
                 self.status.set(f"数据源错误：{item}")
             else:
-                event = self.parser.feed(item)
+                event = self.parser.feed(item, received_at=datetime.now())
                 if self.strict_live_gate and event.sample and not self.parser.signature.measurement_ready:
                     self.pre_ready_samples += 1
                     event.sample = None
+                if event.sample and self.capture_started_monotonic is None and self.strict_live_gate:
+                    self.capture_started_monotonic = time.monotonic()
+                    self.capture_frozen_seconds = 0.0
                 self.session.add(event, self.parser.signature)
                 if self.strict_live_gate and not self.parser.signature.measurement_ready:
                     self.status.set(
@@ -263,6 +296,7 @@ class ScopeApp:
             drained += 1
         if len(self.session.samples) != self.last_draw_n:
             self.draw()
+        self.metric_vars["采集时长"].set(self._format_duration(self._capture_seconds()))
         self.root.after(100, self.poll)
 
     def export(self) -> None:
@@ -304,6 +338,7 @@ class ScopeApp:
         self.last_draw_n = len(self.session.samples)
         m = self.session.metrics()
         self.signature.set("平台签名：" + self.session.signature.compact())
+        self.metric_vars["采集时长"].set(self._format_duration(self._capture_seconds()))
         for key, metric in (("n", "n"), ("timeout", "to"), ("dup", "dup"), ("ooo", "ooo"), ("bad", "bad"), ("drop", "drop")):
             self.metric_vars[key].set(str(m[metric]))
         for key, metric in (("p50精确", "p50_us"), ("p90精确", "p90_us"), ("p99精确", "p99_us"), ("p99.9精确", "p999_us"), ("max", "max_us"), ("jitter", "jitter_us")):
@@ -400,7 +435,7 @@ def main() -> int:
                 while time.monotonic() < deadline:
                     raw = handle.readline()
                     if raw:
-                        event = line_parser.feed(raw.decode("utf-8", errors="replace"))
+                        event = line_parser.feed(raw.decode("utf-8", errors="replace"), received_at=datetime.now())
                         if event.sample and not line_parser.signature.measurement_ready:
                             pre_ready_samples += 1
                             event.sample = None

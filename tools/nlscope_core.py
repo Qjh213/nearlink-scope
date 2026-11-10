@@ -89,8 +89,10 @@ class LineParser:
                 continue
         return result
 
-    def feed(self, line: str) -> ParsedEvent:
+    def feed(self, line: str, received_at: Optional[datetime] = None) -> ParsedEvent:
         stamp, body = self._timestamp_and_body(line)
+        if stamp is None:
+            stamp = received_at
         event = ParsedEvent(raw_line=line.rstrip("\r\n"))
         if body.startswith("S,"):
             parts = body.split(",")
@@ -173,10 +175,17 @@ class Session:
             # 与板端口径一致：相邻 RTT 差分的平均绝对值，不是总体标准差。
             "jitter_us": round(statistics.mean(adjacent), 1) if adjacent else 0,
             "bproc_mean_us": round(statistics.mean(bproc), 1) if bproc else None,
+            "sample_span_s": self.sample_span_seconds(),
         }
         for key in ("sent", "recv", "to", "dup", "ooo", "bad", "drop", "loss_ppm"):
             result[key] = self.counters.get(key, 0)
         return result
+
+    def sample_span_seconds(self) -> float:
+        stamps = [row.wall_time for row in self.samples if row.wall_time is not None]
+        if len(stamps) < 2:
+            return 0.0
+        return max(0.0, (stamps[-1] - stamps[0]).total_seconds())
 
     def histogram(self, bins: int = 24) -> list[tuple[float, float, int]]:
         values = [row.rtt_us / 1000.0 for row in self.samples]
@@ -226,6 +235,7 @@ class Session:
 | 指标 | 数值 |
 |---|---:|
 | 有效样本 | {m['n']} |
+| 样本记录时长 | {float(m['sample_span_s']):.3f} s |
 | RTT p50 | {ms('p50_us')} |
 | RTT p90 | {ms('p90_us')} |
 | RTT p99 | {ms('p99_us')} |

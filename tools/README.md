@@ -1,5 +1,10 @@
 # LinkScope M3 PC 工具
 
+## 普通用户安装
+
+从项目 Release 下载 `NearLink-LinkScope-0.3.6-Setup.exe`，双击安装。目标电脑无需安装 Python；开发板
+仍需 CH340 驱动。也可下载 Portable.zip，解压后运行 `LinkScope.exe`。
+
 第一版采用 Python 标准库 Tkinter 绘图，只有实时串口需要 `pyserial`。板端时间戳仍是唯一测量时基；
 PC 只负责接收、显示和导出，USB 串口到达时间不参与 RTT。
 

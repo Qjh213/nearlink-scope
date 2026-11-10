@@ -1,6 +1,7 @@
 # build
 out/
 build/
+dist/
 *.o
 *.bin
 *.elf

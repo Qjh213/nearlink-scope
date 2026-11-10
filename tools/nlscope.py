@@ -14,6 +14,8 @@ from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
 
+APP_VERSION = "M3.0.6"
+
 
 def discover_serial_ports() -> list[tuple[str, str]]:
     """返回 [(device, display)]；无 pyserial 或无设备时返回空列表。"""
@@ -53,7 +55,7 @@ class ScopeApp:
         self.tk = tk
         self.ttk = ttk
         self.root = root
-        self.root.title("NearLink LinkScope · M3")
+        self.root.title(f"NearLink LinkScope · {APP_VERSION}")
         self.root.geometry("1280x820")
         self.events: queue.Queue = queue.Queue()
         self.stop_event = threading.Event()
@@ -167,6 +169,8 @@ class ScopeApp:
     def stop(self) -> None:
         self._freeze_capture()
         self.stop_event.set()
+        # 立即使旧 worker 已排队但尚未处理的尾部消息失效；否则尾部 S 行会再次启动计时并清零冻结值。
+        self.source_id += 1
         self.paused = bool(self.session.raw_lines or self.session.samples)
         self.status.set(
             f"已暂停，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
@@ -335,7 +339,8 @@ class ScopeApp:
                 if self.strict_live_gate and event.sample and not self.parser.signature.measurement_ready:
                     self.pre_ready_samples += 1
                     event.sample = None
-                if event.sample and self.capture_started_monotonic is None and self.strict_live_gate:
+                if (event.sample and self.capture_started_monotonic is None and self.strict_live_gate
+                        and not self.paused and not self.stop_event.is_set()):
                     self.capture_started_monotonic = time.monotonic()
                     self.capture_frozen_seconds = 0.0
                 self.session.add(event, self.parser.signature)

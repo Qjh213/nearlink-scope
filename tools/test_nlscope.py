@@ -1,5 +1,6 @@
 import tempfile
 import time
+import threading
 import unittest
 from pathlib import Path
 
@@ -40,6 +41,28 @@ class ParserTests(unittest.TestCase):
         self.assertIsNotNone(app.capture_started_monotonic)
         self.assertGreaterEqual(app._capture_seconds(), 12.0)
         self.assertLess(app._capture_seconds(), 12.2)
+
+    def test_stop_freezes_duration_and_invalidates_queued_source(self):
+        class Status:
+            value = ""
+            def set(self, value):
+                self.value = value
+
+        app = ScopeApp.__new__(ScopeApp)
+        app.strict_live_gate = True
+        app.capture_started_monotonic = time.monotonic() - 5.0
+        app.capture_frozen_seconds = 0.0
+        app.stop_event = threading.Event()
+        app.source_id = 7
+        app.session = feed_lines(["S,1,10,30,20,3,4\n"])
+        app.paused = False
+        app.status = Status()
+        app.stop()
+        self.assertTrue(app.stop_event.is_set())
+        self.assertEqual(app.source_id, 8)
+        self.assertTrue(app.paused)
+        self.assertGreaterEqual(app.capture_frozen_seconds, 5.0)
+        self.assertIn("时长已保留", app.status.value)
 
     def test_signature_and_metrics(self):
         session = feed_lines(LINES)

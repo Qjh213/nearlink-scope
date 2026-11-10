@@ -63,6 +63,8 @@ class ScopeApp:
         self.pre_ready_samples = 0
         self.capture_started_monotonic: float | None = None
         self.capture_frozen_seconds = 0.0
+        self.paused = False
+        self.active_port = ""
         self.session = Session()
         self.parser = LineParser()
         self.last_draw_n = -1
@@ -139,6 +141,7 @@ class ScopeApp:
         self.pre_ready_samples = 0
         self.capture_started_monotonic = None
         self.capture_frozen_seconds = 0.0
+        self.paused = False
         self.last_draw_n = -1
 
     def _begin_source(self, source: str) -> tuple[int, threading.Event]:
@@ -157,13 +160,18 @@ class ScopeApp:
             except queue.Empty:
                 break
         self._new_session("cleared")
+        self.active_port = ""
         self.status.set("已清空")
         self.draw(force=True)
 
     def stop(self) -> None:
         self._freeze_capture()
         self.stop_event.set()
-        self.status.set("已停止")
+        self.paused = bool(self.session.raw_lines or self.session.samples)
+        self.status.set(
+            f"已暂停，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
+            "点击开始串口可继续，点击清空才会归零"
+        )
 
     def _freeze_capture(self) -> None:
         if self.capture_started_monotonic is not None:
@@ -184,12 +192,17 @@ class ScopeApp:
             return time.monotonic() - self.capture_started_monotonic
         return self.capture_frozen_seconds
 
+    def _resume_capture_clock(self) -> None:
+        if self.capture_started_monotonic is None and self.capture_frozen_seconds > 0:
+            self.capture_started_monotonic = time.monotonic() - self.capture_frozen_seconds
+
     def open_log(self) -> None:
         from tkinter import filedialog
         path = filedialog.askopenfilename(title="选择 QCOM 日志", filetypes=(("Text logs", "*.txt *.log"), ("All", "*.*")))
         if not path:
             return
         source_id, stop_event = self._begin_source(path)
+        self.active_port = ""
         self.strict_live_gate = False
         self.status.set(f"正在回放：{Path(path).name}")
         threading.Thread(target=self._file_worker, args=(Path(path), source_id, stop_event), daemon=True).start()
@@ -215,9 +228,23 @@ class ScopeApp:
             from tkinter import messagebox
             messagebox.showerror("没有可用串口", "请连接开发板并点击“刷新”。")
             return
-        source_id, stop_event = self._begin_source(port)
-        self.strict_live_gate = True
-        self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
+        resume = self.paused and self.active_port == port and bool(self.session.raw_lines or self.session.samples)
+        if resume:
+            self.source_id += 1
+            self.stop_event = threading.Event()
+            source_id, stop_event = self.source_id, self.stop_event
+            self.strict_live_gate = True
+            self.paused = False
+            self._resume_capture_clock()
+            self.status.set(
+                f"继续采集 {port}，已保留 {len(self.session.samples)} 个样本和 "
+                f"{self._format_duration(self._capture_seconds())}"
+            )
+        else:
+            source_id, stop_event = self._begin_source(port)
+            self.strict_live_gate = True
+            self.active_port = port
+            self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
         threading.Thread(target=self._serial_worker, args=(serial, port, source_id, stop_event), daemon=True).start()
 
     def _serial_worker(self, serial_module, port: str, source_id: int, stop_event: threading.Event) -> None:
@@ -271,7 +298,13 @@ class ScopeApp:
                 continue
             if item is None:
                 self._freeze_capture()
-                self.status.set(f"数据源结束，共 {len(self.session.samples)} 个样本")
+                if self.paused:
+                    self.status.set(
+                        f"已暂停，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
+                        "点击开始串口可继续，点击清空才会归零"
+                    )
+                else:
+                    self.status.set(f"数据源结束，共 {len(self.session.samples)} 个样本")
             elif isinstance(item, Exception):
                 self.status.set(f"数据源错误：{item}")
             else:

@@ -1,4 +1,5 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -29,6 +30,16 @@ class ParserTests(unittest.TestCase):
     def test_duration_format(self):
         self.assertEqual(ScopeApp._format_duration(0), "00:00:00")
         self.assertEqual(ScopeApp._format_duration(3661.9), "01:01:01")
+
+    def test_resume_clock_keeps_frozen_duration(self):
+        app = ScopeApp.__new__(ScopeApp)
+        app.strict_live_gate = True
+        app.capture_started_monotonic = None
+        app.capture_frozen_seconds = 12.0
+        app._resume_capture_clock()
+        self.assertIsNotNone(app.capture_started_monotonic)
+        self.assertGreaterEqual(app._capture_seconds(), 12.0)
+        self.assertLess(app._capture_seconds(), 12.2)
 
     def test_signature_and_metrics(self):
         session = feed_lines(LINES)

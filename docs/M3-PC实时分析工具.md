@@ -29,7 +29,7 @@ COM3 @115200 ──┘                         ├─ CSV 原始样本
 - RTT 最近1200点时间序列；
 - 24桶直方图与经验 CDF；
 - 精确 p50/p90/p99/p99.9/max/mean/jitter；
-- 从第一条正式样本开始的采集时长，停止冻结、新会话归零；
+- 从第一条正式样本开始的采集时长，停止冻结，同串口继续时续计，清空/新会话才归零；
 - timeout、duplicate、out-of-order、bad、drop；
 - role、link、payload、rate、window、timeout、MTU、interval、selftest、ready 平台签名；
 - 原始串口日志、CSV、JSON、Markdown 一次导出。

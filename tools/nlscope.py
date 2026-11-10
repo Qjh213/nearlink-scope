@@ -37,6 +37,8 @@ class ScopeApp:
         self.stop_event = threading.Event()
         self.source_id = 0
         self.source_label = "idle"
+        self.strict_live_gate = False
+        self.pre_ready_samples = 0
         self.session = Session()
         self.parser = LineParser()
         self.last_draw_n = -1
@@ -87,6 +89,7 @@ class ScopeApp:
         self.session = Session()
         self.parser = LineParser(source=source)
         self.source_label = source
+        self.pre_ready_samples = 0
         self.last_draw_n = -1
 
     def _begin_source(self, source: str) -> tuple[int, threading.Event]:
@@ -118,6 +121,7 @@ class ScopeApp:
         if not path:
             return
         source_id, stop_event = self._begin_source(path)
+        self.strict_live_gate = False
         self.status.set(f"正在回放：{Path(path).name}")
         threading.Thread(target=self._file_worker, args=(Path(path), source_id, stop_event), daemon=True).start()
 
@@ -138,7 +142,8 @@ class ScopeApp:
             return
         port = self.port.get().strip()
         source_id, stop_event = self._begin_source(port)
-        self.status.set(f"正在读取 {port} @ 115200")
+        self.strict_live_gate = True
+        self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
         threading.Thread(target=self._serial_worker, args=(serial, port, source_id, stop_event), daemon=True).start()
 
     def _serial_worker(self, serial_module, port: str, source_id: int, stop_event: threading.Event) -> None:
@@ -195,11 +200,21 @@ class ScopeApp:
             elif isinstance(item, Exception):
                 self.status.set(f"数据源错误：{item}")
             else:
-                self.session.add(self.parser.feed(item), self.parser.signature)
-                self.status.set(
-                    f"正在读取 {self.source_label} | 原始行 {len(self.session.raw_lines)} | "
-                    f"有效样本 {len(self.session.samples)}"
-                )
+                event = self.parser.feed(item)
+                if self.strict_live_gate and event.sample and not self.parser.signature.measurement_ready:
+                    self.pre_ready_samples += 1
+                    event.sample = None
+                self.session.add(event, self.parser.signature)
+                if self.strict_live_gate and not self.parser.signature.measurement_ready:
+                    self.status.set(
+                        f"等待 measurement-ready：请复位 COM4→COM3 | 原始行 {len(self.session.raw_lines)} | "
+                        f"已忽略中途样本 {self.pre_ready_samples}"
+                    )
+                else:
+                    self.status.set(
+                        f"正式采集中 {self.source_label} | 原始行 {len(self.session.raw_lines)} | "
+                        f"有效样本 {len(self.session.samples)}"
+                    )
             drained += 1
         if len(self.session.samples) != self.last_draw_n:
             self.draw()
@@ -321,6 +336,7 @@ def main() -> int:
             return 3
         line_parser = LineParser(source=args.serial)
         session = Session()
+        pre_ready_samples = 0
         deadline = time.monotonic() + max(0.1, args.duration)
         try:
             with serial.Serial(
@@ -339,11 +355,17 @@ def main() -> int:
                 while time.monotonic() < deadline:
                     raw = handle.readline()
                     if raw:
-                        session.add(line_parser.feed(raw.decode("utf-8", errors="replace")), line_parser.signature)
+                        event = line_parser.feed(raw.decode("utf-8", errors="replace"))
+                        if event.sample and not line_parser.signature.measurement_ready:
+                            pre_ready_samples += 1
+                            event.sample = None
+                        session.add(event, line_parser.signature)
         except Exception as exc:
             print(f"串口采集失败：{exc}", file=sys.stderr)
             return 4
         print_summary(session)
+        if pre_ready_samples:
+            print(f"ignored_pre_ready_samples={pre_ready_samples}")
         if args.export:
             stem = f"linkscope-{args.serial.lower()}-{time.strftime('%Y%m%d-%H%M%S')}"
             print("\n".join(str(p) for p in session.export(args.export, stem)))

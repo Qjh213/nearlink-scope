@@ -40,6 +40,10 @@ python -m pip install -r tools\requirements.txt
 LinkScope 明确使用 `115200 / 8N1 / no flow control / DTR off / RTS off`，与 QCOM 未勾选 DTR/RTS
 时保持一致，避免 CH340 控制线影响复位或下载模式。
 
+实时模式默认启用严格准入：打开串口后，中途接入的 `S` 行只计入“已忽略中途样本”，不会进入正式曲线和
+统计。只有依次捕获启动平台签名与 `measurement-ready` 后才开始正式计数。因此每次新实验都需要手动
+复位 COM4，再复位 COM3。停止/开始只控制 PC 接收，不会停止或重启板端固件。
+
 也可以无界面采集10秒并导出，便于验收和自动化：
 
 ```powershell

@@ -35,6 +35,8 @@ class ScopeApp:
         self.root.geometry("1280x820")
         self.events: queue.Queue = queue.Queue()
         self.stop_event = threading.Event()
+        self.source_id = 0
+        self.source_label = "idle"
         self.session = Session()
         self.parser = LineParser()
         self.last_draw_n = -1
@@ -84,10 +86,24 @@ class ScopeApp:
     def _new_session(self, source: str) -> None:
         self.session = Session()
         self.parser = LineParser(source=source)
+        self.source_label = source
         self.last_draw_n = -1
+
+    def _begin_source(self, source: str) -> tuple[int, threading.Event]:
+        self.stop()
+        self.source_id += 1
+        self.stop_event = threading.Event()
+        self._new_session(source)
+        return self.source_id, self.stop_event
 
     def clear(self) -> None:
         self.stop()
+        self.source_id += 1  # 让旧线程队列消息失效
+        while True:
+            try:
+                self.events.get_nowait()
+            except queue.Empty:
+                break
         self._new_session("cleared")
         self.status.set("已清空")
         self.draw(force=True)
@@ -101,19 +117,17 @@ class ScopeApp:
         path = filedialog.askopenfilename(title="选择 QCOM 日志", filetypes=(("Text logs", "*.txt *.log"), ("All", "*.*")))
         if not path:
             return
-        self.stop()
-        self.stop_event = threading.Event()
-        self._new_session(path)
+        source_id, stop_event = self._begin_source(path)
         self.status.set(f"正在回放：{Path(path).name}")
-        threading.Thread(target=self._file_worker, args=(Path(path),), daemon=True).start()
+        threading.Thread(target=self._file_worker, args=(Path(path), source_id, stop_event), daemon=True).start()
 
-    def _file_worker(self, path: Path) -> None:
+    def _file_worker(self, path: Path, source_id: int, stop_event: threading.Event) -> None:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             for line in handle:
-                if self.stop_event.is_set():
+                if stop_event.is_set():
                     break
-                self.events.put(line)
-        self.events.put(None)
+                self.events.put((source_id, line))
+        self.events.put((source_id, None))
 
     def start_serial(self) -> None:
         try:
@@ -122,38 +136,56 @@ class ScopeApp:
             from tkinter import messagebox
             messagebox.showerror("缺少依赖", "实时串口需要 pyserial：\npython -m pip install -r tools/requirements.txt\n历史日志回放不受影响。")
             return
-        self.stop()
-        self.stop_event = threading.Event()
         port = self.port.get().strip()
-        self._new_session(port)
+        source_id, stop_event = self._begin_source(port)
         self.status.set(f"正在读取 {port} @ 115200")
-        threading.Thread(target=self._serial_worker, args=(serial, port), daemon=True).start()
+        threading.Thread(target=self._serial_worker, args=(serial, port, source_id, stop_event), daemon=True).start()
 
-    def _serial_worker(self, serial_module, port: str) -> None:
+    def _serial_worker(self, serial_module, port: str, source_id: int, stop_event: threading.Event) -> None:
+        handle = None
         try:
-            with serial_module.Serial(port, 115200, timeout=.2) as handle:
-                while not self.stop_event.is_set():
+            # 快速停止再启动时，旧句柄最多还需一个 timeout 才释放；有限重试避免假性占用失败。
+            last_error = None
+            for _ in range(10):
+                if stop_event.is_set():
+                    return
+                try:
+                    handle = serial_module.Serial(port, 115200, timeout=.2)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    time.sleep(.1)
+            if handle is None:
+                raise last_error or RuntimeError("无法打开串口")
+            with handle:
+                while not stop_event.is_set():
                     raw = handle.readline()
                     if raw:
-                        self.events.put(raw.decode("utf-8", errors="replace"))
+                        self.events.put((source_id, raw.decode("utf-8", errors="replace")))
         except Exception as exc:  # 串口异常必须回到 UI 线程显示
-            self.events.put(exc)
+            self.events.put((source_id, exc))
         finally:
-            self.events.put(None)
+            self.events.put((source_id, None))
 
     def poll(self) -> None:
         drained = 0
         while drained < 4000:
             try:
-                item = self.events.get_nowait()
+                source_id, item = self.events.get_nowait()
             except queue.Empty:
                 break
+            if source_id != self.source_id:
+                continue
             if item is None:
                 self.status.set(f"数据源结束，共 {len(self.session.samples)} 个样本")
             elif isinstance(item, Exception):
                 self.status.set(f"数据源错误：{item}")
             else:
                 self.session.add(self.parser.feed(item), self.parser.signature)
+                self.status.set(
+                    f"正在读取 {self.source_label} | 原始行 {len(self.session.raw_lines)} | "
+                    f"有效样本 {len(self.session.samples)}"
+                )
             drained += 1
         if len(self.session.samples) != self.last_draw_n:
             self.draw()

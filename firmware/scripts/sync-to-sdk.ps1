@@ -29,6 +29,10 @@ param(
     [string]$Link = 'sle',
     [ValidateSet('request', 'command')]
     [string]$SleWriteMode = 'request',
+    [ValidateSet('request', 'command')]
+    [string]$BleWriteMode = 'command',
+    [ValidateRange(6, 3200)]
+    [int]$BleIntvUnit = 6,
     [switch]$Quiet,
     [switch]$NoConfig
 )
@@ -156,12 +160,20 @@ if (-not $NoConfig -and $Role -ne 'none') {
         Set-Cfg 'CONFIG_LINK_SCOPE_SLE_WRITE_REQUEST' 'y'
         Set-Cfg 'CONFIG_LINK_SCOPE_SLE_WRITE_COMMAND' $null
     }
+    if ($BleWriteMode -eq 'request') {
+        Set-Cfg 'CONFIG_LINK_SCOPE_BLE_WRITE_REQUEST' 'y'
+        Set-Cfg 'CONFIG_LINK_SCOPE_BLE_WRITE_COMMAND' $null
+    } else {
+        Set-Cfg 'CONFIG_LINK_SCOPE_BLE_WRITE_REQUEST' $null
+        Set-Cfg 'CONFIG_LINK_SCOPE_BLE_WRITE_COMMAND' 'y'
+    }
     Set-Cfg 'CONFIG_LINK_SCOPE_CFG_ID' '0'
     Set-Cfg 'CONFIG_LINK_SCOPE_PROBE_HZ' ([string]$Hz)
     Set-Cfg 'CONFIG_LINK_SCOPE_PAYLOAD_BYTES' ([string]$Payload)
     Set-Cfg 'CONFIG_LINK_SCOPE_TIMEOUT_MS' ([string]$TimeoutMs)
     Set-Cfg 'CONFIG_LINK_SCOPE_WINDOW' ([string]$Window)
     Set-Cfg 'CONFIG_LINK_SCOPE_INTV_SLOT' ([string]$IntvSlot)
+    Set-Cfg 'CONFIG_LINK_SCOPE_BLE_INTV_UNIT' ([string]$BleIntvUnit)
     Set-Cfg 'CONFIG_LINK_SCOPE_LOOP_US' '500'
     Set-Cfg 'CONFIG_LINK_SCOPE_TASK_PRIO' '28'
     if ($Quiet) {
@@ -175,7 +187,7 @@ if (-not $NoConfig -and $Role -ne 'none') {
 
     [System.IO.File]::Copy($appcfg, "$appcfg.bak.linkscope", $true)
     Write-TextLf $appcfg ($lines -join "`n")
-    Write-Host "[4/4] .config 已切到 role=$Role link=$Link sle-write=$SleWriteMode（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
+    Write-Host "[4/4] .config 已切到 role=$Role link=$Link sle-write=$SleWriteMode ble-write=$BleWriteMode ble-intv=$BleIntvUnit（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
 }
 
 Write-Host ""

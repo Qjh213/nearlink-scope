@@ -1,0 +1,86 @@
+[2026-11-10_13:37:47:968]boot.
+[2026-11-10_13:37:48:015]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:37:48:015]verify_public_rootkey secure verify disable!
+[2026-11-10_13:37:48:015]verify_params_key_area secure verify disable!
+[2026-11-10_13:37:48:030]verify_params_area_info secure verify disable!
+[2026-11-10_13:37:48:030]verify_image_key_area secure verify disable!
+[2026-11-10_13:37:48:030]verify_image_code_info secure verify disable!
+[2026-11-10_13:37:48:093]SSB Uart Init Succ!
+[2026-11-10_13:37:48:093]SSB Flash Init Succ!
+[2026-11-10_13:37:48:093]verify_image_key_area secure verify disable!
+[2026-11-10_13:37:48:108]verify_image_code_info secure verify disable!
+[2026-11-10_13:37:48:137]Flashboot Uart Init Succ!
+[2026-11-10_13:37:48:137]Flashboot Malloc Init Succ!
+[2026-11-10_13:37:48:137]Flash Init Succ!
+[2026-11-10_13:37:48:137]No need to fix SR!
+[2026-11-10_13:37:48:137]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:37:48:137]flashboot version : 1.10.102
+[2026-11-10_13:37:48:137][UPG] upgrade init OK!
+[2026-11-10_13:37:48:137]No need to upgrade...
+[2026-11-10_13:37:48:137]flash_encrypt disable.
+[2026-11-10_13:37:48:137]verify_image_key_area secure verify disable!
+[2026-11-10_13:37:48:154]verify_image_code_info secure verify disable!
+[2026-11-10_13:37:48:573]APP|dbg uart init ok.
+[2026-11-10_13:37:48:618][UPG] upgrade init OK!
+[2026-11-10_13:37:48:618]APP|init_sle_mac failed!!! 
+[2026-11-10_13:37:48:618]APP|init_dev_addr, mac_addr:0xf6,0x 0,0x73,0x1c,0x**,0x**,
+[2026-11-10_13:37:48:618]xo_trim_temp_comp val:0 0
+[2026-11-10_13:37:48:618]los_at_plt_cmd_register EXCUTE
+[2026-11-10_13:37:48:618]APP|thread[11] func null
+[2026-11-10_13:37:48:618]cpu 0 entering scheduler
+[2026-11-10_13:37:48:681]APP|btc open
+[2026-11-10_13:37:48:681][RADAR_LOG] alg ctrl read from nv [1][2][0][0][1][1][20]
+[2026-11-10_13:37:48:712]device_main_init: 0!
+[2026-11-10_13:37:48:712]===hal_initialize_phy===226===
+[2026-11-10_13:37:48:712]device_module_init:: succ!
+[2026-11-10_13:37:48:712]cali_set_cali_mask:old[0x0] -> new[0x1fa2]
+
+[2026-11-10_13:37:48:712]fe_rf_initialize
+[2026-11-10_13:37:48:712]cali_offline_cali_entry enter
+[2026-11-10_13:37:48:736]cali_set_cali_done_flag:old[0x0] -> new[0x1]
+
+[2026-11-10_13:37:48:736]rf cali OK. time cost:22, ret:0
+
+[2026-11-10_13:37:48:736][linkscope]  ===== LinkScope W1 =====
+[2026-11-10_13:37:48:736][linkscope]  role=responder (B)
+[2026-11-10_13:37:48:736][linkscope]  [SELFTEST] pass=32 fail=0 -> PASS
+[2026-11-10_13:37:48:736][linkscope]  [B] responder booting (ble), wait stack 5000ms
+[2026-11-10_13:37:52:621]xo update temp:3,diff:0,xo:0x3083c
+[2026-11-10_13:37:53:772][ACore] ble enable cbk in, event:b
+[2026-11-10_13:37:53:772][linkscope]  [B] register server attempt=1 rc=0x80006001 id=0
+[2026-11-10_13:37:54:262][GAP service register][device name] handle: 0x0006, value handle: 0x0007
+[2026-11-10_13:37:54:278][GAP service register][device appearance] handle: 0x0008, value handle: 0x0009
+[2026-11-10_13:37:54:278][GAP service register][prefer conn param] handle: 0x000a, value handle: 0x000b
+[2026-11-10_13:37:54:294][linkscope]  [B] server registered id=1
+[2026-11-10_13:37:54:294][linkscope]  [B] service up (tx=0x0 rx=0x0), start adv
+[2026-11-10_13:37:54:294][ACore] ble set adv param min_interval:0x20, max interval:0x30, adv_type:0, duration:0
+[2026-11-10_13:37:54:314][ACore] ble set adv param, own addr:0x00:**:**:**:00:00
+[2026-11-10_13:37:54:314][ACore] ble set adv param, peer addr:0x00:**:**:**:00:00
+[2026-11-10_13:37:54:314][ACore] gap ble start adv in, adv_id:1
+[2026-11-10_13:37:54:314][linkscope]  [B] service up (tx=0x0 rx=0x0), start adv
+[2026-11-10_13:37:54:314][ACore] ble set adv param min_interval:0x20, max interval:0x30, adv_type:0, duration:0
+[2026-11-10_13:37:54:325][ACore] ble set adv param, own addr:0x00:**:**:**:00:00
+[2026-11-10_13:37:54:345][ACore] ble set adv param, peer addr:0x00:**:**:**:00:00
+[2026-11-10_13:37:54:345][ACore] gap ble start adv in, adv_id:1
+[2026-11-10_13:37:54:345][linkscope]  [B] adv on adv_id=1 status=0x1
+[2026-11-10_13:37:54:345][linkscope]  [B] adv on adv_id=1 status=0x1
+[2026-11-10_13:37:54:345][linkscope]  [B] service up (tx=0x10 rx=0x13), start adv
+[2026-11-10_13:37:54:345][ACore] ble set adv param min_interval:0x20, max interval:0x30, adv_type:0, duration:0
+[2026-11-10_13:37:54:356][ACore] ble set adv param, own addr:0x00:**:**:**:00:00
+[2026-11-10_13:37:54:388][ACore] ble set adv param, peer addr:0x00:**:**:**:00:00
+[2026-11-10_13:37:54:388][ACore] gap ble start adv in, adv_id:1
+[2026-11-10_13:37:54:388][linkscope]  [B] adv on adv_id=1 status=0x1
+[2026-11-10_13:37:54:764][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-10_13:37:55:780][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-10_13:37:56:780][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-10_13:37:57:793][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-10_13:37:58:804][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-10_13:37:59:736]APP|[SYS INFO] mem: used:103416, free:262540; log: drop/all[0/0], at_recv 0.
+[2026-11-10_13:37:59:813][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-10_13:38:09:722]APP|[SYS INFO] mem: used:103424, free:262532; log: drop/all[0/0], at_recv 0.
+[2026-11-10_13:38:19:739]APP|[SYS INFO] mem: used:103416, free:262540; log: drop/all[0/0], at_recv 0.
+[2026-11-10_13:38:29:732]APP|[SYS INFO] mem: used:103428, free:262528; log: drop/all[0/0], at_recv 0.
+[2026-11-10_13:38:39:741]APP|[SYS INFO] mem: used:103428, free:262528; log: drop/all[0/0], at_recv 0.
+[2026-11-10_13:38:49:739]APP|[SYS INFO] mem: used:103428, free:262528; log: drop/all[0/0], at_recv 0.
+[2026-11-10_13:38:59:737]APP|[SYS INFO] mem: used:103428, free:262528; log: drop/all[0/0], at_recv 0.
+[2026-11-10_13:39:09:741]APP|[SYS INFO] mem: used:103428, free:262528; log: drop/all[0/0], at_recv 0.

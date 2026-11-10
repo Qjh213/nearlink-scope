@@ -94,6 +94,29 @@ config LINK_SCOPE_SLE_WRITE_COMMAND
     bool "Write Command (without protocol confirmation)"
 endchoice
 
+choice
+    prompt "BLE write procedure"
+    default LINK_SCOPE_BLE_WRITE_COMMAND
+    depends on LINK_SCOPE_LINK_BLE
+    help
+        Request 使用 GATT Write Request 并记录写确认；Command 使用 Write Without Response。
+        M2 只比较事务语义一致的 SLE/BLE 组合。
+
+config LINK_SCOPE_BLE_WRITE_REQUEST
+    bool "Write Request (with protocol confirmation)"
+
+config LINK_SCOPE_BLE_WRITE_COMMAND
+    bool "Write Command (without protocol confirmation)"
+endchoice
+
+config LINK_SCOPE_BLE_INTV_UNIT
+    int "BLE connection interval (1.25ms units)"
+    range 6 3200
+    default 6
+    depends on LINK_SCOPE_LINK_BLE
+    help
+        BLE 连接间隔原始单位为 1.25ms；默认 6 对应 7.5ms。
+
 config LINK_SCOPE_LOOP_US
     int "Main loop granularity (us, busy-wait)"
     range 100 10000

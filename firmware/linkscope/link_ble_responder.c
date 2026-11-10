@@ -24,7 +24,9 @@
 #define LS_BLE_TX_UUID          0xFE31u   /* B -> A：notify（RSP） */
 #define LS_BLE_RX_UUID          0xFE32u   /* A -> B：write（REQ） */
 #define LS_BLE_CCCD_UUID        0x2902u   /* 客户端特征配置，写 0x0001 开通知 */
-#define LS_BLE_START_DELAY_MS   2000u
+#define LS_BLE_START_DELAY_MS   5000u     /* 官方 ble_uart 样例等待 SLE/BT 栈初始化 */
+#define LS_BLE_REG_RETRY_MS     500u
+#define LS_BLE_REG_RETRY_MAX    10u
 #define LS_BLE_HB_TICKS         50u       /* 50 tick × 20ms = 1s */
 #define LS_BLE_HB_FIRST_PRINTS  6u
 
@@ -36,6 +38,7 @@ static const uint8_t g_ble_server_addr[BD_ADDR_LEN] = { 0x11, 0x22, 0x33, 0x44, 
 static uint8_t g_server_id = 0u;
 static uint16_t g_conn_id = 0u;
 static uint8_t g_conn_state = 0u;
+static uint16_t g_service_handle = 0u;     /* 过滤协议栈内置 GAP/GATT 服务回调 */
 static uint16_t g_tx_handle = 0u;          /* notify 用的 value handle */
 static uint16_t g_rx_handle = 0u;
 static uint8_t g_rsp_buf[PROBE_RSP_LEN];
@@ -48,7 +51,7 @@ static volatile int32_t  g_dbg_err;
 
 static uint8_t g_tx_value[2] = { 0x00, 0x00 };
 static uint8_t g_rx_value[2] = { 0x00, 0x00 };
-static uint8_t g_ccc_value[2] = { 0x01, 0x00 };   /* 默认打开 notify */
+static uint8_t g_ccc_value[2] = { 0x00, 0x00 };   /* CCCD 按规范默认关闭，由 client 显式打开 */
 
 static void ble_uuid16(uint16_t value, bt_uuid_t *out)
 {
@@ -90,8 +93,9 @@ static void ble_add_rx_char(uint8_t server_id, uint16_t srvc_handle)
     ble_uuid16(LS_BLE_RX_UUID, &uuid);
     (void)memset_s(&chi, sizeof(chi), 0, sizeof(chi));
     chi.chara_uuid = uuid;
-    /* 只写不响应：A 端用 gattc_write_cmd 发，省掉一次写响应，RTT 里只剩 notify 一趟 */
-    chi.properties = GATT_CHARACTER_PROPERTY_BIT_READ | GATT_CHARACTER_PROPERTY_BIT_WRITE;
+    /* 同一 responder 同时接收 Write Request 与 Write Command。 */
+    chi.properties = GATT_CHARACTER_PROPERTY_BIT_READ | GATT_CHARACTER_PROPERTY_BIT_WRITE |
+        GATT_CHARACTER_PROPERTY_BIT_WRITE_NO_RSP;
     chi.permissions = GATT_ATTRIBUTE_PERMISSION_READ | GATT_ATTRIBUTE_PERMISSION_WRITE;
     chi.value_len = sizeof(g_rx_value);
     chi.value = g_rx_value;
@@ -143,11 +147,18 @@ static void ble_set_adv_and_start(void)
 
 static void ble_service_add_cb(uint8_t server_id, bt_uuid_t *uuid, uint16_t handle, errcode_t status)
 {
-    unused(uuid);
+    bt_uuid_t expected = { 0 };
+
     if (status != 0) {
         osal_printk("%s [B] add service failed status=0x%x\r\n", LS_LOG, (uint32_t)status);
         return;
     }
+    ble_uuid16(LS_BLE_SVC_UUID, &expected);
+    if (uuid == NULL || uuid->uuid_len != expected.uuid_len ||
+        memcmp(uuid->uuid, expected.uuid, expected.uuid_len) != 0) {
+        return; /* enable_ble() 还会创建内置 GAP/GATT 服务，不属于 LinkScope。 */
+    }
+    g_service_handle = handle;
     ble_add_tx_char(server_id, handle);
     ble_add_rx_char(server_id, handle);
     (void)gatts_start_service(server_id, handle);
@@ -187,6 +198,9 @@ static void ble_desc_add_cb(uint8_t server_id, bt_uuid_t *uuid, uint16_t service
 static void ble_service_start_cb(uint8_t server_id, uint16_t handle, errcode_t status)
 {
     unused(server_id);
+    if (handle != g_service_handle || g_service_handle == 0u) {
+        return; /* 忽略协议栈内置服务的 start 回调，避免重复启动同一广播。 */
+    }
     if (status != 0) {
         osal_printk("%s [B] start service failed status=0x%x\r\n", LS_LOG, (uint32_t)status);
         return;
@@ -221,6 +235,9 @@ static void ble_write_req_cb(uint8_t server_id, uint16_t conn_id, gatts_req_writ
     if (req == NULL || req->value == NULL || status != 0) {
         g_dbg_bad++;
         return;
+    }
+    if (req->handle != g_rx_handle) {
+        return; /* CCCD 等控制面写入不属于探针数据，不能计入 req/bad。 */
     }
     t2 = ls_now_us();                    /* 铁律：第一行取时间戳 */
     g_dbg_req++;
@@ -277,6 +294,8 @@ static void ble_enable_cb(errcode_t status)
     bt_uuid_t app_uuid = { 0 };
     bd_addr_t addr;
     uint8_t name[] = LS_BLE_NAME;
+    errcode_t rc = ERRCODE_BT_FAIL;
+    uint32_t attempt;
 
     if (status != 0) {
         osal_printk("%s [B] enable_ble failed status=0x%x\r\n", LS_LOG, (uint32_t)status);
@@ -293,10 +312,21 @@ static void ble_enable_cb(errcode_t status)
     app_uuid.uuid_len = 2u;
     app_uuid.uuid[0] = 0x00u;
     app_uuid.uuid[1] = 0x00u;
-    if (gatts_register_server(&app_uuid, &g_server_id) != 0) {
-        osal_printk("%s [B] register server failed\r\n", LS_LOG);
+    for (attempt = 1u; attempt <= LS_BLE_REG_RETRY_MAX; attempt++) {
+        rc = gatts_register_server(&app_uuid, &g_server_id);
+        if (rc == ERRCODE_BT_SUCCESS) {
+            break;
+        }
+        osal_printk("%s [B] register server attempt=%u rc=0x%x id=%u\r\n", LS_LOG,
+            attempt, (uint32_t)rc, (uint32_t)g_server_id);
+        osal_msleep(LS_BLE_REG_RETRY_MS);
+    }
+    if (rc != ERRCODE_BT_SUCCESS) {
+        osal_printk("%s [B] register server failed after %u attempts rc=0x%x\r\n", LS_LOG,
+            (uint32_t)LS_BLE_REG_RETRY_MAX, (uint32_t)rc);
         return;
     }
+    osal_printk("%s [B] server registered id=%u\r\n", LS_LOG, (uint32_t)g_server_id);
     ble_uuid16(LS_BLE_SVC_UUID, &app_uuid);
     (void)gatts_add_service(g_server_id, &app_uuid, true);
 }

@@ -17,7 +17,9 @@ param(
     [string]$SdkRoot = 'Z:\home\bearpi\project\bearpi-pico_h3863-master',
     [string]$SrcDir  = (Join-Path (Split-Path $PSCommandPath -Parent) '..\linkscope'),
     [ValidateSet('request', 'command')]
-    [string]$SleWriteMode = 'request'
+    [string]$SleWriteMode = 'request',
+    [ValidateSet('request', 'command')]
+    [string]$BleWriteMode = 'command'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +64,12 @@ if ($SleWriteMode -eq 'command') {
 } else {
     $defs += '-DCONFIG_LINK_SCOPE_SLE_WRITE_REQUEST=1'
 }
+if ($BleWriteMode -eq 'request') {
+    $defs += '-DCONFIG_LINK_SCOPE_BLE_WRITE_REQUEST=1'
+} else {
+    $defs += '-DCONFIG_LINK_SCOPE_BLE_WRITE_COMMAND=1'
+}
+$defs += '-DCONFIG_LINK_SCOPE_BLE_INTV_UNIT=6'
 $flags = @('-std=c99', '-Wall', '-Wextra', '-c') + $defs + $incs
 
 $out = Join-Path (Split-Path $PSCommandPath -Parent) '..\..\.tools\build\syntax'
@@ -97,4 +105,4 @@ foreach ($f in $files) {
 }
 
 if ($fail -gt 0) { throw "$fail 个文件编不过" }
-Write-Host "全部 $($files.Count) 个 .c 通过（真 SDK 头文件，SLE write=$SleWriteMode）" -ForegroundColor Green
+Write-Host "全部 $($files.Count) 个 .c 通过（真 SDK 头文件，SLE write=$SleWriteMode, BLE write=$BleWriteMode）" -ForegroundColor Green

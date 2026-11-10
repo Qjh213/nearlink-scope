@@ -1,11 +1,8 @@
 /*
- * BLE 发起端（A）：扫名字 -> 连 -> 换 MTU -> 发现特征 -> 发 REQ -> 等 notify 回来。
+ * BLE 发起端（A）：扫名字 -> 连 -> 换 MTU -> 发现特征/CCCD -> 调参 -> 发 REQ -> 等 notify。
  *
  * 与 SLE 版的对照点：
- *   - SLE：seek(按名字广播) -> connect -> pair -> MTU 520 -> 发现属性 -> ssapc_write_req
- *   - BLE：scan(按名字过滤) -> connect -> exchange MTU -> 发现 service/char/CCCD -> gattc_write_cmd
- * 发送用"写不响应"（write_cmd），理由：热路径少一趟写响应，量到的 RTT 只剩 REQ 上去 + RSP notify 回来，
- * 和 SLE 那边 ssapc_write_req 的差别写在 docs 里，对比时要说清。
+ * M2 通过 Kconfig 分别选择 Write Request / Write Command，只与同语义 SLE 结果比较。
  */
 #include <stddef.h>
 #include <string.h>
@@ -25,10 +22,15 @@
 #define LS_BLE_RX_UUID          0xFE32u   /* 对端 write 的特征（REQ） */
 #define LS_BLE_CCCD_UUID        0x2902u
 #define LS_BLE_MTU              247u
-#define LS_BLE_INTV_SLOT        0x06u     /* BLE 最小连接间隔 7.5ms = 6 × 1.25ms */
 #define LS_BLE_TUNE_MS          5000u
 #define LS_BLE_SUP_TIMEOUT      500u      /* 500 × 10ms = 5s */
-#define LS_BLE_START_DELAY_MS   2000u
+#define LS_BLE_START_DELAY_MS   5000u     /* 官方 ble_uart 样例等待 SLE/BT 栈初始化 */
+#define LS_BLE_REG_RETRY_MS     500u
+#define LS_BLE_REG_RETRY_MAX    10u
+
+#ifndef CONFIG_LINK_SCOPE_BLE_INTV_UNIT
+#define CONFIG_LINK_SCOPE_BLE_INTV_UNIT 6
+#endif
 
 static const char g_ble_peer_name[] = "linkscope";
 static const uint8_t g_ble_client_addr[BD_ADDR_LEN] = { 0x12, 0x22, 0x33, 0x44, 0x55, 0x66 };
@@ -39,19 +41,39 @@ static uint16_t g_write_handle = 0u;      /* 对端 RX 特征：我们写这里 
 static uint16_t g_notify_handle = 0u;     /* 对端 TX 特征：对端 notify 这里 */
 static uint16_t g_cccd_handle = 0u;
 static volatile uint8_t g_ready = 0u;
+static volatile uint8_t g_transport_ready = 0u; /* 特征发现 + CCCD 写确认完成 */
 static volatile uint8_t g_scanning = 0u;
 static volatile int8_t g_rssi = 0;
 static volatile uint8_t g_rssi_valid = 0u;
 static volatile uint8_t g_cccd_written = 0u;
+static volatile uint8_t g_tune_inflight = 0u;
+static uint8_t g_cccd_enable[2] = { 0x01u, 0x00u };
 
-/* 写确认时延（write_cmd 下协议栈不一定回调，能回就统计） */
+/* Write Request 的协议层写确认统计；Write Command 不具有这项语义。 */
 static volatile uint32_t g_cfm_n;
+static volatile uint32_t g_cfm_print_n;
 static volatile uint32_t g_cfm_sum_us;
 static volatile uint32_t g_cfm_max_us;
 static uint32_t g_send_us;
 
 static uint32_t g_last_tune_ms;
 static uint16_t g_granted_intv = 0xFFFFu;
+
+static void ble_try_enable_notify(void)
+{
+    gattc_handle_value_t hv;
+
+    if (g_write_handle == 0u || g_notify_handle == 0u || g_cccd_handle == 0u || g_cccd_written != 0u) {
+        return;
+    }
+    hv.handle = g_cccd_handle;
+    hv.data_len = sizeof(g_cccd_enable);
+    hv.data = g_cccd_enable;
+    if (gattc_write_req(g_client_id, g_conn_id, &hv) == 0) {
+        g_cccd_written = 1u;
+        osal_printk("%s [A] cccd 0x%x <- 0x0001\r\n", LS_LOG, (uint32_t)g_cccd_handle);
+    }
+}
 
 static void ble_uuid16(uint16_t value, bt_uuid_t *out)
 {
@@ -101,6 +123,8 @@ static void ble_enable_cb(errcode_t status)
     bt_uuid_t app_uuid = { 0 };
     bd_addr_t addr;
     uint8_t name[] = "linkscope_a";
+    errcode_t rc = ERRCODE_BT_FAIL;
+    uint32_t attempt;
 
     if (status != 0) {
         osal_printk("%s [A] enable_ble failed status=0x%x\r\n", LS_LOG, (uint32_t)status);
@@ -117,11 +141,22 @@ static void ble_enable_cb(errcode_t status)
     app_uuid.uuid_len = 2u;
     app_uuid.uuid[0] = 0x00u;
     app_uuid.uuid[1] = 0x00u;
-    if (gattc_register_client(&app_uuid, &g_client_id) != 0) {
-        osal_printk("%s [A] register client failed\r\n", LS_LOG);
+    for (attempt = 1u; attempt <= LS_BLE_REG_RETRY_MAX; attempt++) {
+        rc = gattc_register_client(&app_uuid, &g_client_id);
+        if (rc == ERRCODE_BT_SUCCESS) {
+            break;
+        }
+        osal_printk("%s [A] register client attempt=%u rc=0x%x id=%u\r\n", LS_LOG,
+            attempt, (uint32_t)rc, (uint32_t)g_client_id);
+        osal_msleep(LS_BLE_REG_RETRY_MS);
+    }
+    if (rc != ERRCODE_BT_SUCCESS) {
+        osal_printk("%s [A] register client failed after %u attempts rc=0x%x\r\n", LS_LOG,
+            (uint32_t)LS_BLE_REG_RETRY_MAX, (uint32_t)rc);
         return;
     }
-    osal_printk("%s [A] client up, scanning for \"%s\"\r\n", LS_LOG, g_ble_peer_name);
+    osal_printk("%s [A] client registered id=%u, scanning for \"%s\"\r\n", LS_LOG,
+        (uint32_t)g_client_id, g_ble_peer_name);
     ble_start_scan();
 }
 
@@ -178,6 +213,10 @@ static void ble_conn_state_cb(uint16_t conn_id, bd_addr_t *addr, gap_ble_conn_st
         g_write_handle = 0u;
         g_notify_handle = 0u;
         g_cccd_handle = 0u;
+        g_cccd_written = 0u;
+        g_transport_ready = 0u;
+        g_tune_inflight = 0u;
+        g_granted_intv = 0xFFFFu;
         ble_start_scan();
     }
 }
@@ -229,20 +268,13 @@ static void ble_discovery_chara_cb(uint8_t client_id, uint16_t conn_id,
     } else if (memcmp(chara->uuid.uuid, rx.uuid, 2u) == 0) {
         g_write_handle = chara->value_handle;
     }
-    if (g_write_handle != 0u && g_notify_handle != 0u && g_ready == 0u) {
-        g_ready = 1u;
-        osal_printk("%s [A] link ready (write=0x%x notify=0x%x cccd=0x%x)\r\n", LS_LOG,
-            (uint32_t)g_write_handle, (uint32_t)g_notify_handle, (uint32_t)g_cccd_handle);
-        (void)gap_ble_read_remote_device_rssi(g_conn_id);
-    }
+    ble_try_enable_notify();
 }
 
 static void ble_discovery_desc_cb(uint8_t client_id, uint16_t conn_id,
                                   gattc_discovery_descriptor_result_t *desc, errcode_t status)
 {
     bt_uuid_t cccd = { 0 };
-    gattc_handle_value_t hv;
-    uint8_t enable[2] = { 0x01u, 0x00u };
 
     if (desc == NULL || status != 0 || desc->uuid.uuid_len != 2u) {
         return;
@@ -252,17 +284,10 @@ static void ble_discovery_desc_cb(uint8_t client_id, uint16_t conn_id,
         return;
     }
     g_cccd_handle = desc->descriptor_hdl;
-    if (g_cccd_written != 0u) {
-        return;
-    }
-    /* 明写一次 0x0001，避免依赖服务端建 CCCD 时的默认值 */
-    hv.handle = g_cccd_handle;
-    hv.data_len = sizeof(enable);
-    hv.data = enable;
-    if (gattc_write_req(client_id, conn_id, &hv) == 0) {
-        g_cccd_written = 1u;
-        osal_printk("%s [A] cccd 0x%x <- 0x0001\r\n", LS_LOG, (uint32_t)g_cccd_handle);
-    }
+    unused(client_id);
+    unused(conn_id);
+    /* 明写一次 0x0001，且只在 RX/TX/CCCD 三个句柄都发现后提交。 */
+    ble_try_enable_notify();
 }
 
 static void ble_discovery_svc_cmp_cb(uint8_t client_id, uint16_t conn_id, bt_uuid_t *uuid, errcode_t status)
@@ -309,33 +334,51 @@ static void ble_read_cmp_cb(uint8_t client_id, uint16_t conn_id, gattc_read_req_
 
 static void ble_write_cb(uint8_t client_id, uint16_t conn_id, uint16_t handle, gatt_status_t status)
 {
-    uint32_t now = ls_now_us();
-
     unused(client_id);
     unused(conn_id);
-    unused(status);
-    if (handle != g_cccd_handle) {
+    if (handle == g_cccd_handle) {
+        if (status == 0) {
+            g_transport_ready = 1u;
+            osal_printk("%s [A] transport ready (write=0x%x notify=0x%x cccd=0x%x), tune first\r\n",
+                LS_LOG, (uint32_t)g_write_handle, (uint32_t)g_notify_handle, (uint32_t)g_cccd_handle);
+            (void)gap_ble_read_remote_device_rssi(g_conn_id);
+        } else {
+            g_cccd_written = 0u;
+            osal_printk("%s [A] cccd write failed status=0x%x\r\n", LS_LOG, (uint32_t)status);
+        }
+        return;
+    }
+#if defined(CONFIG_LINK_SCOPE_BLE_WRITE_REQUEST)
+    if (status == 0 && handle == g_write_handle) {
+        uint32_t now = ls_now_us();
         uint32_t lat = now - g_send_us;
         g_cfm_n++;
         g_cfm_sum_us += lat;
         if (lat > g_cfm_max_us) {
             g_cfm_max_us = lat;
         }
+        if (g_cfm_print_n < 3u) {
+            g_cfm_print_n++;
+            osal_printk("%s [A] write cfm #%u lat=%u us\r\n", LS_LOG,
+                (uint32_t)g_cfm_print_n, lat);
+        }
     }
+#else
+    unused(status);
+#endif
 }
 
 /* 热路径：对端 notify 回来了，第一行取 t4 */
 static void ble_notification_cb(uint8_t client_id, uint16_t conn_id, gattc_handle_value_t *data,
                                 errcode_t status)
 {
-    uint32_t t4;
+    uint32_t t4 = ls_now_us();
 
     unused(client_id);
     unused(conn_id);
     if (data == NULL || data->data == NULL || status != 0) {
         return;
     }
-    t4 = ls_now_us();
     ls_on_frame(data->data, data->data_len, t4);
 }
 
@@ -367,6 +410,12 @@ static void ble_conn_param_update_cb(uint16_t conn_id, errcode_t status, const g
     osal_printk("%s [A] param updated intv=%u (%u.%02u ms) latency=%u status=0x%x\r\n", LS_LOG,
         (uint32_t)param->interval, (uint32_t)(param->interval * 125u / 100u),
         (uint32_t)((param->interval * 125u / 10u) % 10u), (uint32_t)param->latency, (uint32_t)status);
+    if (status == 0 && param->interval == (uint16_t)CONFIG_LINK_SCOPE_BLE_INTV_UNIT) {
+        g_ready = 1u;
+        osal_printk("%s [A] measurement ready after param update\r\n", LS_LOG);
+    } else {
+        g_tune_inflight = 0u;
+    }
 }
 
 static int ble_start(void)
@@ -418,8 +467,12 @@ static int ble_send(const uint8_t *data, uint16_t len)
     hv.handle = g_write_handle;
     hv.data_len = len;
     hv.data = (uint8_t *)data;
+#if defined(CONFIG_LINK_SCOPE_BLE_WRITE_REQUEST)
     g_send_us = ls_now_us();
+    return (gattc_write_req(g_client_id, g_conn_id, &hv) == 0) ? 0 : -1;
+#else
     return (gattc_write_cmd(g_client_id, g_conn_id, &hv) == 0) ? 0 : -1;
+#endif
 }
 
 static uint8_t ble_ready(void)
@@ -428,34 +481,35 @@ static uint8_t ble_ready(void)
 }
 
 /*
- * 就绪后把连接间隔拉到 BLE 允许的最小值 7.5ms（0x06）。
- * 停止等模式下 RTT ≈ 2 个连接事件，7.5ms 间隔理论上 ~15ms 一往返，40Hz（25ms）够用；
- * 100Hz 在 BLE 上本来就不可能（规格下限 7.5ms，2 事件就是 66 包/秒的上限）。
+ * 传输层就绪后请求配置的 BLE 连接间隔（单位 1.25 ms）。
+ * 参数更新回调成功且实际授予值相等后，才允许测量引擎开始发包。
+ * RTT 跨几个连接事件取决于调度与包到达相位，不能只由间隔推导固定上限。
  */
 static void ble_poll(uint32_t now_ms)
 {
     gap_conn_param_update_t req;
     errcode_t rc;
 
-    if (g_ready == 0u) {
+    if (g_transport_ready == 0u || g_ready != 0u) {
         return;
     }
-    if (g_granted_intv != 0xFFFFu && g_granted_intv <= LS_BLE_INTV_SLOT) {
-        return;   /* 已经是最小间隔，别再打扰链路 */
-    }
-    if ((uint32_t)(now_ms - g_last_tune_ms) < LS_BLE_TUNE_MS) {
+    if (g_tune_inflight != 0u && (uint32_t)(now_ms - g_last_tune_ms) < LS_BLE_TUNE_MS) {
         return;
     }
     g_last_tune_ms = now_ms;
     (void)memset_s(&req, sizeof(req), 0, sizeof(req));
     req.conn_handle = g_conn_id;
-    req.interval_min = LS_BLE_INTV_SLOT;
-    req.interval_max = LS_BLE_INTV_SLOT;
+    req.interval_min = (uint16_t)CONFIG_LINK_SCOPE_BLE_INTV_UNIT;
+    req.interval_max = (uint16_t)CONFIG_LINK_SCOPE_BLE_INTV_UNIT;
     req.slave_latency = 0u;
     req.timeout_multiplier = LS_BLE_SUP_TIMEOUT;
+    g_tune_inflight = 1u;
     rc = gap_ble_connect_param_update(&req);
     osal_printk("%s [A] tune intv=0x%x rc=0x%x (granted=0x%x)\r\n", LS_LOG,
-        (uint32_t)LS_BLE_INTV_SLOT, (uint32_t)rc, (uint32_t)g_granted_intv);
+        (uint32_t)CONFIG_LINK_SCOPE_BLE_INTV_UNIT, (uint32_t)rc, (uint32_t)g_granted_intv);
+    if (rc != 0) {
+        g_tune_inflight = 0u;
+    }
 }
 
 static void ble_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us)
@@ -480,7 +534,11 @@ static void ble_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us)
 }
 
 static const link_ops_t g_ble_ops = {
-    .name = "ble",
+#if defined(CONFIG_LINK_SCOPE_BLE_WRITE_REQUEST)
+    .name = "ble-write_req",
+#else
+    .name = "ble-write_cmd",
+#endif
     .start = ble_start,
     .send = ble_send,
     .ready = ble_ready,

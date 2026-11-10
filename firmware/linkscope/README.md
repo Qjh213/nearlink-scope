@@ -1,7 +1,7 @@
-# LinkScope 固件（W1）
+# LinkScope 固件
 
-星闪链路体检仪的板端程序。W1 阶段只有三件事：**测时基、测噪声底、双板打出 RTT**。
-统计引擎、串口配置命令、BLE 对照分别留给 W2/W3/W5。
+星闪链路体检仪的板端程序。M1 已完成测量内核与 SLE 写语义 A/B；M2 在同一套
+探针、统计口径和硬件上加入 BLE 对照。
 
 ## 角色（编译期选择，一次构建一种）
 
@@ -74,6 +74,21 @@ SLE 发起端默认使用有确认的 Write Request。若要与 BLE 当前的无
 Write Request 模式会额外输出协议层写确认时延；Write Command 没有该确认，RTT 仍以应用层
 REQ/RSP 帧的 `t4-t1` 为准。日志中的链路名分别为 `sle-write_req` 和 `sle-write_cmd`，避免混淆数据。
 
+BLE 同样支持两种写语义，默认是 Write Command。响应端 RX 特征同时声明 `WRITE` 与
+`WRITE_NO_RSP`，所以两种模式共用一份 responder 固件：
+
+```powershell
+# BLE Write Command，连接间隔请求值 6 × 1.25 ms = 7.5 ms
+.\firmware\scripts\sync-to-sdk.ps1 -Role initiator -Link ble -BleWriteMode command -BleIntvUnit 6
+
+# BLE Write Request，同样请求 7.5 ms
+.\firmware\scripts\sync-to-sdk.ps1 -Role initiator -Link ble -BleWriteMode request -BleIntvUnit 6
+```
+
+BLE 端只有在 CCCD 写确认完成、连接参数更新成功且实际授予间隔等于配置值后才进入
+测量态。日志链路名为 `ble-write_cmd` 或 `ble-write_req`；Request 模式额外记录协议层
+写确认，Command 模式不伪造这项指标。
+
 ```bash
 # Ubuntu 虚拟机
 cd /home/bearpi/project/bearpi-pico_h3863-master
@@ -81,7 +96,7 @@ python3 build.py -c ws63-liteos-app 2>&1 | tee linkscope_initiator.log
 # 产物：output/ws63/fwpkg/ws63-liteos-app/ws63-liteos-app_all.fwpkg
 ```
 
-默认时钟 12.5 ms 连接间隔、UART 控制台 115200。250B 大包与低时延模式是 W2/W5 的事。
+UART 控制台为 115200。连接参数以配置值和运行日志中的实际授予值为准，不能只看源码默认值。
 
 ## 主机侧单元测试（不接板子）
 

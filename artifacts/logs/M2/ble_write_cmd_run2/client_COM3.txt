@@ -1,0 +1,425 @@
+[2026-11-10_13:38:06:103]boot.
+[2026-11-10_13:38:06:161]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:06:161]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:06:161]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:06:161]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:06:161]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:161]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:228]SSB Uart Init Succ!
+[2026-11-10_13:38:06:228]SSB Flash Init Succ!
+[2026-11-10_13:38:06:243]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:243]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:273]Flashboot Uart Init Succ!
+[2026-11-10_13:38:06:273]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:06:273]Flash Init Succ!
+[2026-11-10_13:38:06:273]No need to fix SR!
+[2026-11-10_13:38:06:273]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:06:273]flashboot version : 1.10.102
+[2026-11-10_13:38:06:273][UPG] upgrade init OK!
+[2026-11-10_13:38:06:273]No need to upgrade...
+[2026-11-10_13:38:06:273]flash_encrypt disable.
+[2026-11-10_13:38:06:273]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:290]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:351]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:06:351]verify_image_code_area fail!
+[2026-11-10_13:38:06:367]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:06:367]update_reset_count 0x1
+[2026-11-10_13:38:06:460]boot.
+[2026-11-10_13:38:06:507]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:06:507]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:06:507]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:06:523]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:06:523]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:523]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:585]SSB Uart Init Succ!
+[2026-11-10_13:38:06:585]SSB Flash Init Succ!
+[2026-11-10_13:38:06:601]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:601]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:632]Flashboot Uart Init Succ!
+[2026-11-10_13:38:06:632]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:06:632]Flash Init Succ!
+[2026-11-10_13:38:06:632]No need to fix SR!
+[2026-11-10_13:38:06:632]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:06:632]flashboot version : 1.10.102
+[2026-11-10_13:38:06:632][UPG] upgrade init OK!
+[2026-11-10_13:38:06:632]No need to upgrade...
+[2026-11-10_13:38:06:632]flash_encrypt disable.
+[2026-11-10_13:38:06:647]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:647]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:710]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:06:710]verify_image_code_area fail!
+[2026-11-10_13:38:06:726]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:06:726]update_reset_count 0x2
+[2026-11-10_13:38:06:820]boot.
+[2026-11-10_13:38:06:868]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:06:868]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:06:868]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:06:884]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:06:884]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:884]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:963]SSB Uart Init Succ!
+[2026-11-10_13:38:06:963]SSB Flash Init Succ!
+[2026-11-10_13:38:06:963]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:06:963]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:06:979]Flashboot Uart Init Succ!
+[2026-11-10_13:38:06:979]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:06:979]Flash Init Succ!
+[2026-11-10_13:38:06:979]No need to fix SR!
+[2026-11-10_13:38:06:979]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:07:010]flashboot version : 1.10.102
+[2026-11-10_13:38:07:010][UPG] upgrade init OK!
+[2026-11-10_13:38:07:010]No need to upgrade...
+[2026-11-10_13:38:07:010]flash_encrypt disable.
+[2026-11-10_13:38:07:010]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:07:010]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:07:089]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:07:089]verify_image_code_area fail!
+[2026-11-10_13:38:07:089]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:07:089]update_reset_count 0x3
+[2026-11-10_13:38:07:182]boot.
+[2026-11-10_13:38:07:229]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:07:229]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:07:229]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:07:229]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:07:244]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:07:244]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:07:322]SSB Uart Init Succ!
+[2026-11-10_13:38:07:322]SSB Flash Init Succ!
+[2026-11-10_13:38:07:322]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:07:322]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:07:349]Flashboot Uart Init Succ!
+[2026-11-10_13:38:07:349]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:07:349]Flash Init Succ!
+[2026-11-10_13:38:07:349]No need to fix SR!
+[2026-11-10_13:38:07:349]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:07:349]flashboot version : 1.10.102
+[2026-11-10_13:38:07:349][UPG] upgrade init OK!
+[2026-11-10_13:38:07:349]No need to upgrade...
+[2026-11-10_13:38:07:349]flash_encrypt disable.
+[2026-11-10_13:38:07:349]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:07:370]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:07:447]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:07:447]verify_image_code_area fail!
+[2026-11-10_13:38:07:447]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:07:479][UPG] upg verify: image ID error
+[2026-11-10_13:38:07:479][UPG] uapi_upg_verify_file fail, ret = 0xffffffff
+[2026-11-10_13:38:07:494]request_upgrade fail, fota_pkt_not_exit.
+[2026-11-10_13:38:07:494]update_reset_count 0x4
+[2026-11-10_13:38:07:586]boot.
+[2026-11-10_13:38:07:645]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:07:645]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:07:645]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:07:645]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:07:645]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:07:645]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:07:725]SSB Uart Init Succ!
+[2026-11-10_13:38:07:725]SSB Flash Init Succ!
+[2026-11-10_13:38:07:725]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:07:725]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:07:756]Flashboot Uart Init Succ!
+[2026-11-10_13:38:07:756]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:07:756]Flash Init Succ!
+[2026-11-10_13:38:07:756]No need to fix SR!
+[2026-11-10_13:38:07:756]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:07:756]flashboot version : 1.10.102
+[2026-11-10_13:38:07:756][UPG] upgrade init OK!
+[2026-11-10_13:38:07:772]No need to upgrade...
+[2026-11-10_13:38:07:772]flash_encrypt disable.
+[2026-11-10_13:38:07:772]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:07:772]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:07:849]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:07:849]verify_image_code_area fail!
+[2026-11-10_13:38:07:849]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:07:897][UPG] upg verify: image ID error
+[2026-11-10_13:38:07:897][UPG] uapi_upg_verify_file fail, ret = 0xffffffff
+[2026-11-10_13:38:07:897]request_upgrade fail, fota_pkt_not_exit.
+[2026-11-10_13:38:07:897]update_reset_count 0x5
+[2026-11-10_13:38:08:006]boot.
+[2026-11-10_13:38:08:057]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:08:057]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:08:057]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:08:057]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:08:057]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:057]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:130]SSB Uart Init Succ!
+[2026-11-10_13:38:08:130]SSB Flash Init Succ!
+[2026-11-10_13:38:08:130]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:130]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:170]Flashboot Uart Init Succ!
+[2026-11-10_13:38:08:170]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:08:170]Flash Init Succ!
+[2026-11-10_13:38:08:170]No need to fix SR!
+[2026-11-10_13:38:08:170]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:08:170]flashboot version : 1.10.102
+[2026-11-10_13:38:08:170][UPG] upgrade init OK!
+[2026-11-10_13:38:08:170]No need to upgrade...
+[2026-11-10_13:38:08:170]flash_encrypt disable.
+[2026-11-10_13:38:08:170]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:192]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:269]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:08:269]verify_image_code_area fail!
+[2026-11-10_13:38:08:269]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:08:315][UPG] upg verify: image ID error
+[2026-11-10_13:38:08:315][UPG] uapi_upg_verify_file fail, ret = 0xffffffff
+[2026-11-10_13:38:08:315]request_upgrade fail, fota_pkt_not_exit.
+[2026-11-10_13:38:08:315]update_reset_count 0x6
+[2026-11-10_13:38:08:410]boot.
+[2026-11-10_13:38:08:457]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:08:457]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:08:457]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:08:488]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:08:488]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:488]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:536]SSB Uart Init Succ!
+[2026-11-10_13:38:08:536]SSB Flash Init Succ!
+[2026-11-10_13:38:08:552]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:552]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:581]Flashboot Uart Init Succ!
+[2026-11-10_13:38:08:581]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:08:581]Flash Init Succ!
+[2026-11-10_13:38:08:581]No need to fix SR!
+[2026-11-10_13:38:08:581]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:08:581]flashboot version : 1.10.102
+[2026-11-10_13:38:08:581][UPG] upgrade init OK!
+[2026-11-10_13:38:08:581]No need to upgrade...
+[2026-11-10_13:38:08:581]flash_encrypt disable.
+[2026-11-10_13:38:08:581]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:598]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:660]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:08:660]verify_image_code_area fail!
+[2026-11-10_13:38:08:676]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:08:676]update_reset_count 0x7
+[2026-11-10_13:38:08:771]boot.
+[2026-11-10_13:38:08:817]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:08:817]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:08:817]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:08:832]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:08:832]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:832]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:893]SSB Uart Init Succ!
+[2026-11-10_13:38:08:893]SSB Flash Init Succ!
+[2026-11-10_13:38:08:909]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:909]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:08:940]Flashboot Uart Init Succ!
+[2026-11-10_13:38:08:940]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:08:940]Flash Init Succ!
+[2026-11-10_13:38:08:940]No need to fix SR!
+[2026-11-10_13:38:08:940]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:08:940]flashboot version : 1.10.102
+[2026-11-10_13:38:08:940][UPG] upgrade init OK!
+[2026-11-10_13:38:08:940]No need to upgrade...
+[2026-11-10_13:38:08:940]flash_encrypt disable.
+[2026-11-10_13:38:08:955]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:08:955]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:019]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:09:019]verify_image_code_area fail!
+[2026-11-10_13:38:09:035]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:09:035]update_reset_count 0x8
+[2026-11-10_13:38:09:127]boot.
+[2026-11-10_13:38:09:185]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:09:185]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:09:185]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:09:185]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:09:185]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:185]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:269]SSB Uart Init Succ!
+[2026-11-10_13:38:09:269]SSB Flash Init Succ!
+[2026-11-10_13:38:09:269]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:269]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:284]Flashboot Uart Init Succ!
+[2026-11-10_13:38:09:284]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:09:284]Flash Init Succ!
+[2026-11-10_13:38:09:303]No need to fix SR!
+[2026-11-10_13:38:09:303]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:09:303]flashboot version : 1.10.102
+[2026-11-10_13:38:09:303][UPG] upgrade init OK!
+[2026-11-10_13:38:09:303]No need to upgrade...
+[2026-11-10_13:38:09:303]flash_encrypt disable.
+[2026-11-10_13:38:09:303]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:303]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:377]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:09:377]verify_image_code_area fail!
+[2026-11-10_13:38:09:393]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:09:393]update_reset_count 0x9
+[2026-11-10_13:38:09:486]boot.
+[2026-11-10_13:38:09:534]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:09:534]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:09:534]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:09:549]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:09:549]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:549]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:629]SSB Uart Init Succ!
+[2026-11-10_13:38:09:629]SSB Flash Init Succ!
+[2026-11-10_13:38:09:629]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:629]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:656]Flashboot Uart Init Succ!
+[2026-11-10_13:38:09:656]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:09:656]Flash Init Succ!
+[2026-11-10_13:38:09:656]No need to fix SR!
+[2026-11-10_13:38:09:656]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:09:656]flashboot version : 1.10.102
+[2026-11-10_13:38:09:656][UPG] upgrade init OK!
+[2026-11-10_13:38:09:656]No need to upgrade...
+[2026-11-10_13:38:09:656]flash_encrypt disable.
+[2026-11-10_13:38:09:656]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:675]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:753]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:09:753]verify_image_code_area fail!
+[2026-11-10_13:38:09:753]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:09:753]update_reset_count 0xA
+[2026-11-10_13:38:09:847]boot.
+[2026-11-10_13:38:09:901]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:09:901]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:09:901]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:09:901]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:09:901]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:901]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:09:986]SSB Uart Init Succ!
+[2026-11-10_13:38:09:986]SSB Flash Init Succ!
+[2026-11-10_13:38:09:986]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:09:986]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:015]Flashboot Uart Init Succ!
+[2026-11-10_13:38:10:015]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:10:015]Flash Init Succ!
+[2026-11-10_13:38:10:015]No need to fix SR!
+[2026-11-10_13:38:10:015]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:10:015]flashboot version : 1.10.102
+[2026-11-10_13:38:10:015][UPG] upgrade init OK!
+[2026-11-10_13:38:10:015]No need to upgrade...
+[2026-11-10_13:38:10:015]flash_encrypt disable.
+[2026-11-10_13:38:10:015]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:032]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:111]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:10:111]verify_image_code_area fail!
+[2026-11-10_13:38:10:111]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:10:111]update_reset_count 0xB
+[2026-11-10_13:38:10:204]boot.
+[2026-11-10_13:38:10:251]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:10:251]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:10:251]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:10:267]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:10:267]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:267]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:344]SSB Uart Init Succ!
+[2026-11-10_13:38:10:344]SSB Flash Init Succ!
+[2026-11-10_13:38:10:344]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:344]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:373]Flashboot Uart Init Succ!
+[2026-11-10_13:38:10:373]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:10:373]Flash Init Succ!
+[2026-11-10_13:38:10:373]No need to fix SR!
+[2026-11-10_13:38:10:373]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:10:373]flashboot version : 1.10.102
+[2026-11-10_13:38:10:373][UPG] upgrade init OK!
+[2026-11-10_13:38:10:373]No need to upgrade...
+[2026-11-10_13:38:10:373]flash_encrypt disable.
+[2026-11-10_13:38:10:373]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:391]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:469]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:10:469]verify_image_code_area fail!
+[2026-11-10_13:38:10:469]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:10:469]update_reset_count 0xC
+[2026-11-10_13:38:10:563]boot.
+[2026-11-10_13:38:10:618]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:10:618]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:10:618]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:10:618]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:10:618]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:618]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:688]SSB Uart Init Succ!
+[2026-11-10_13:38:10:688]SSB Flash Init Succ!
+[2026-11-10_13:38:10:688]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:703]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:731]Flashboot Uart Init Succ!
+[2026-11-10_13:38:10:731]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:10:731]Flash Init Succ!
+[2026-11-10_13:38:10:731]No need to fix SR!
+[2026-11-10_13:38:10:731]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:10:731]flashboot version : 1.10.102
+[2026-11-10_13:38:10:731][UPG] upgrade init OK!
+[2026-11-10_13:38:10:731]No need to upgrade...
+[2026-11-10_13:38:10:731]flash_encrypt disable.
+[2026-11-10_13:38:10:731]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:749]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:10:828]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:10:828]verify_image_code_area fail!
+[2026-11-10_13:38:10:828]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:10:828]update_reset_count 0xD
+[2026-11-10_13:38:10:919]boot.
+[2026-11-10_13:38:10:966]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:10:966]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:10:966]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:10:982]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:10:982]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:10:982]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:061]SSB Uart Init Succ!
+[2026-11-10_13:38:11:061]SSB Flash Init Succ!
+[2026-11-10_13:38:11:061]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:061]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:089]Flashboot Uart Init Succ!
+[2026-11-10_13:38:11:089]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:11:089]Flash Init Succ!
+[2026-11-10_13:38:11:089]No need to fix SR!
+[2026-11-10_13:38:11:089]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:11:089]flashboot version : 1.10.102
+[2026-11-10_13:38:11:089][UPG] upgrade init OK!
+[2026-11-10_13:38:11:089]No need to upgrade...
+[2026-11-10_13:38:11:089]flash_encrypt disable.
+[2026-11-10_13:38:11:089]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:106]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:169]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:11:169]verify_image_code_area fail!
+[2026-11-10_13:38:11:184]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:11:184]update_reset_count 0xE
+[2026-11-10_13:38:11:278]boot.
+[2026-11-10_13:38:11:334]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:11:334]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:11:334]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:11:334]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:11:334]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:334]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:404]SSB Uart Init Succ!
+[2026-11-10_13:38:11:404]SSB Flash Init Succ!
+[2026-11-10_13:38:11:404]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:420]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:436]Flashboot Uart Init Succ!
+[2026-11-10_13:38:11:436]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:11:436]Flash Init Succ!
+[2026-11-10_13:38:11:436]No need to fix SR!
+[2026-11-10_13:38:11:436]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:11:467]flashboot version : 1.10.102
+[2026-11-10_13:38:11:467][UPG] upgrade init OK!
+[2026-11-10_13:38:11:467]No need to upgrade...
+[2026-11-10_13:38:11:467]flash_encrypt disable.
+[2026-11-10_13:38:11:467]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:467]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:531]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:11:531]verify_image_code_area fail!
+[2026-11-10_13:38:11:531]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:11:531]update_reset_count 0xF
+[2026-11-10_13:38:11:642]boot.
+[2026-11-10_13:38:11:690]Flash Init Fail! ret = 0x80001341
+[2026-11-10_13:38:11:690]verify_public_rootkey secure verify disable!
+[2026-11-10_13:38:11:690]verify_params_key_area secure verify disable!
+[2026-11-10_13:38:11:690]verify_params_area_info secure verify disable!
+[2026-11-10_13:38:11:690]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:706]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:769]SSB Uart Init Succ!
+[2026-11-10_13:38:11:769]SSB Flash Init Succ!
+[2026-11-10_13:38:11:769]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:769]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:801]Flashboot Uart Init Succ!
+[2026-11-10_13:38:11:801]Flashboot Malloc Init Succ!
+[2026-11-10_13:38:11:801]Flash Init Succ!
+[2026-11-10_13:38:11:801]No need to fix SR!
+[2026-11-10_13:38:11:801]io level work in hw mode, level[chip]:0x33
+[2026-11-10_13:38:11:801]flashboot version : 1.10.102
+[2026-11-10_13:38:11:816][UPG] upgrade init OK!
+[2026-11-10_13:38:11:816]No need to upgrade...
+[2026-11-10_13:38:11:816]flash_encrypt disable.
+[2026-11-10_13:38:11:816]verify_image_key_area secure verify disable!
+[2026-11-10_13:38:11:816]verify_image_code_info secure verify disable!
+[2026-11-10_13:38:11:895]verify_image_code_area hash memcmp fail!
+[2026-11-10_13:38:11:895]verify_image_code_area fail!
+[2026-11-10_13:38:11:895]verify_image_app_body failed!! ret = 0x800015C8
+[2026-11-10_13:38:11:895]update_reset_count 0x10

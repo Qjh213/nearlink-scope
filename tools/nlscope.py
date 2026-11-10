@@ -198,14 +198,33 @@ class ScopeApp:
 
     def open_log(self) -> None:
         from tkinter import filedialog
-        path = filedialog.askopenfilename(title="选择 QCOM 日志", filetypes=(("Text logs", "*.txt *.log"), ("All", "*.*")))
+        path = filedialog.askopenfilename(
+            title="选择 LinkScope 日志或 CSV",
+            filetypes=(("LinkScope data", "*.txt *.log *.csv"), ("Text logs", "*.txt *.log"),
+                       ("CSV samples", "*.csv"), ("All", "*.*")),
+        )
         if not path:
             return
         source_id, stop_event = self._begin_source(path)
         self.active_port = ""
         self.strict_live_gate = False
         self.status.set(f"正在回放：{Path(path).name}")
-        threading.Thread(target=self._file_worker, args=(Path(path), source_id, stop_event), daemon=True).start()
+        if Path(path).suffix.lower() == ".csv":
+            threading.Thread(target=self._csv_worker, args=(Path(path), source_id, stop_event), daemon=True).start()
+        else:
+            threading.Thread(target=self._file_worker, args=(Path(path), source_id, stop_event), daemon=True).start()
+
+    def _csv_worker(self, path: Path, source_id: int, stop_event: threading.Event) -> None:
+        try:
+            loaded = load_log(path)
+            if stop_event.is_set():
+                return
+            # CSV 已是准入后的正式样本，直接交给 UI；同名 JSON 提供签名与 SUM。
+            self.events.put((source_id, ("csv_session", loaded)))
+        except Exception as exc:
+            self.events.put((source_id, exc))
+        finally:
+            self.events.put((source_id, None))
 
     def _file_worker(self, path: Path, source_id: int, stop_event: threading.Event) -> None:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
@@ -307,6 +326,10 @@ class ScopeApp:
                     self.status.set(f"数据源结束，共 {len(self.session.samples)} 个样本")
             elif isinstance(item, Exception):
                 self.status.set(f"数据源错误：{item}")
+            elif isinstance(item, tuple) and item and item[0] == "csv_session":
+                self.session = item[1]
+                self.parser.signature = self.session.signature
+                self.last_draw_n = -1
             else:
                 event = self.parser.feed(item, received_at=datetime.now())
                 if self.strict_live_gate and event.sample and not self.parser.signature.measurement_ready:

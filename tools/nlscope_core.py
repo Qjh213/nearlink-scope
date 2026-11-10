@@ -90,10 +90,16 @@ class LineParser:
         return result
 
     def feed(self, line: str, received_at: Optional[datetime] = None) -> ParsedEvent:
+        original = line.rstrip("\r\n")
         stamp, body = self._timestamp_and_body(line)
+        had_source_timestamp = stamp is not None
         if stamp is None:
             stamp = received_at
-        event = ParsedEvent(raw_line=line.rstrip("\r\n"))
+        raw_line = original
+        if not had_source_timestamp and received_at is not None:
+            millis = received_at.microsecond // 1000
+            raw_line = f"[{received_at:%Y-%m-%d_%H:%M:%S}:{millis:03d}]{original}"
+        event = ParsedEvent(raw_line=raw_line)
         if body.startswith("S,"):
             parts = body.split(",")
             if len(parts) >= 7:
@@ -259,11 +265,41 @@ RTT 使用 initiator 板端同一时钟的 `t4-t1`；PC 串口到达时间不参
 
 
 def load_log(path: Path) -> Session:
+    if path.suffix.lower() == ".csv":
+        return load_csv(path)
     parser = LineParser(source=str(path))
     session = Session()
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             session.add(parser.feed(line), parser.signature)
+    return session
+
+
+def load_csv(path: Path) -> Session:
+    session = Session()
+    session.signature.source = str(path)
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            try:
+                wall = datetime.fromisoformat(row["wall_time"]) if row.get("wall_time") else None
+                session.samples.append(Sample(
+                    seq=int(row["seq"]), t1_us=int(row["t1_us"]), t4_us=int(row["t4_us"]),
+                    rtt_us=int(row["rtt_us"]), bproc_us=int(row["bproc_us"]), dlt_us=int(row["dlt_us"]),
+                    wall_time=wall,
+                ))
+            except (KeyError, TypeError, ValueError):
+                continue
+    meta_path = path.with_suffix(".json")
+    if meta_path.exists():
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+            signature = payload.get("platform_signature", {})
+            signature["source"] = str(path)
+            session.signature = PlatformSignature(**{k: v for k, v in signature.items()
+                                                     if k in PlatformSignature.__dataclass_fields__})
+            session.counters = payload.get("board_latest_sum", {})
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            pass
     return session
 
 

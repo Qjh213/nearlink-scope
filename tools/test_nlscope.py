@@ -3,7 +3,7 @@ import time
 import unittest
 from pathlib import Path
 
-from nlscope_core import LineParser, feed_lines
+from nlscope_core import LineParser, feed_lines, load_log
 from nlscope import ScopeApp, discover_serial_ports
 
 
@@ -65,6 +65,12 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(event.sample.seq, 7)
         self.assertEqual(event.sample.rtt_us, 20)
 
+    def test_live_line_gets_receive_timestamp(self):
+        from datetime import datetime
+        parser = LineParser()
+        event = parser.feed("S,7,10,30,20,3,4\n", received_at=datetime(2026, 11, 10, 1, 2, 3, 456000))
+        self.assertTrue(event.raw_line.startswith("[2026-11-10_01:02:03:456]S,7"))
+
     def test_export(self):
         session = feed_lines(LINES)
         with tempfile.TemporaryDirectory() as directory:
@@ -75,6 +81,10 @@ class ParserTests(unittest.TestCase):
             report = report_path.read_text(encoding="utf-8")
             self.assertIn("RTT p99", report)
             self.assertIn("15.000 ms", report)
+            loaded = load_log(csv_path)
+            self.assertEqual(len(loaded.samples), 3)
+            self.assertEqual(loaded.signature.link, "ble-write_req")
+            self.assertEqual(loaded.metrics()["sample_span_s"], 0.02)
 
 
 if __name__ == "__main__":

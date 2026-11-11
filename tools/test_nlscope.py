@@ -51,7 +51,14 @@ class ParserTests(unittest.TestCase):
         parser.feed("[linkscope] role=monitor\n")
         self.assertFalse(parser.signature.measurement_ready)
         parser.feed("[linkscope] [MON] seek enabled status=0x0\n")
+        self.assertFalse(parser.signature.measurement_ready)
+        parser.feed("[linkscope] [SELFTEST] pass=32 fail=0 -> PASS\n")
+        self.assertFalse(parser.signature.measurement_ready)
+        parser.feed("[linkscope] link=sle-passive-seek seek_intv=100 seek_win=100 filter_dup=0\n")
         self.assertTrue(parser.signature.measurement_ready)
+        self.assertEqual(parser.signature.seek_interval, 100)
+        self.assertEqual(parser.signature.seek_window, 100)
+        self.assertEqual(parser.signature.filter_duplicates, 0)
 
     def test_live_monitor_drops_data_until_current_boot_is_ready(self):
         app = ScopeApp.__new__(ScopeApp)
@@ -65,6 +72,8 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(app.pre_ready_samples, 1)
 
         app.parser.feed("[linkscope] role=monitor\n")
+        app.parser.feed("[linkscope] [SELFTEST] pass=32 fail=0 -> PASS\n")
+        app.parser.feed("[linkscope] link=sle-passive-seek seek_intv=100 seek_win=100 filter_dup=0\n")
         app.parser.feed("[linkscope] [MON] seek enabled status=0x0\n")
         fresh = app.parser.feed("ADV,1,200,3,12345678,-41,0,1,bb\n")
         self.assertTrue(app._apply_live_gate(fresh))

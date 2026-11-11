@@ -47,6 +47,10 @@ min/p10/p50/p90/max；报告间隔只在同一设备、同一event类型内统�
 原始日志、逐ADV CSV、包含聚合指标的JSON和带口径说明的Markdown四类导出均已通过真实日志回放，
 导出的ADV CSV也可重新打开。当前单元测试12项全部通过。
 
+实时采集采用完整平台签名门：只有同一次启动中依次确认 `role=monitor`、`selftest=PASS`、
+`link=sle-passive-seek`、seek interval/window、`filter_dup=0/1`，且seek enable回调状态为0后，ADV才允许
+进入统计、计时和导出。物理串口在板卡持续运行时仍会收到字节，但签名未完整前不会形成实验样本。
+
 ## 4. 实验顺序
 
 1. COM4运行已知SLE advertiser，COM3运行monitor，验证字段和持续seek；

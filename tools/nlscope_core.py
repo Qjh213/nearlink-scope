@@ -56,11 +56,21 @@ class PlatformSignature:
     mtu: Optional[int] = None
     interval: Optional[int] = None
     latency: Optional[int] = None
+    seek_interval: Optional[int] = None
+    seek_window: Optional[int] = None
+    filter_duplicates: Optional[int] = None
     selftest: str = "unknown"
     measurement_ready: bool = False
     source: str = "unknown"
 
     def compact(self) -> str:
+        if self.role == "monitor" or self.link == "sle-passive-seek":
+            return (
+                f"role={self.role} | link={self.link} | "
+                f"seek={self.seek_interval or '?'}/{self.seek_window or '?'} | "
+                f"filter_dup={self.filter_duplicates if self.filter_duplicates is not None else '?'} | "
+                f"selftest={self.selftest} | ready={'yes' if self.measurement_ready else 'no'}"
+            )
         return (
             f"role={self.role} | link={self.link} | cfg={self.cfg} | "
             f"payload={self.payload_b or '?'}B | rate={self.rate_hz or '?'}Hz | "
@@ -85,6 +95,20 @@ class LineParser:
 
     def __init__(self, source: str = "unknown") -> None:
         self.signature = PlatformSignature(source=source)
+        self._monitor_seek_enabled = False
+
+    def _refresh_monitor_ready(self) -> None:
+        signature = self.signature
+        if signature.role != "monitor":
+            return
+        signature.measurement_ready = bool(
+            self._monitor_seek_enabled
+            and signature.link == "sle-passive-seek"
+            and signature.selftest == "PASS"
+            and signature.seek_interval is not None
+            and signature.seek_window is not None
+            and signature.filter_duplicates in (0, 1)
+        )
 
     @staticmethod
     def _timestamp_and_body(line: str) -> tuple[Optional[datetime], str]:
@@ -159,6 +183,7 @@ class LineParser:
             self.signature.role = values.get("role", self.signature.role)
             if self.signature.role == "monitor":
                 # A fresh boot signature invalidates readiness retained by a resumed PC session.
+                self._monitor_seek_enabled = False
                 self.signature.measurement_ready = False
         if "link=" in body:
             values = dict(KV.findall(body))
@@ -170,6 +195,11 @@ class LineParser:
                     digits = re.match(r"\d+", raw)
                     if digits:
                         setattr(self.signature, attr, int(digits.group()))
+            if self.signature.link == "sle-passive-seek":
+                integers = self._ints(body)
+                self.signature.seek_interval = integers.get("seek_intv", self.signature.seek_interval)
+                self.signature.seek_window = integers.get("seek_win", self.signature.seek_window)
+                self.signature.filter_duplicates = integers.get("filter_dup", self.signature.filter_duplicates)
         if "[SELFTEST]" in body:
             self.signature.selftest = "PASS" if "-> PASS" in body else "FAIL"
         if "mtu=" in body:
@@ -182,8 +212,9 @@ class LineParser:
             self.signature.latency = values.get("latency", self.signature.latency)
         if "measurement ready" in body or "link ready" in body:
             self.signature.measurement_ready = True
-        if "[MON] seek enabled" in body and self._ints(body).get("status") == 0:
-            self.signature.measurement_ready = True
+        if "[MON] seek enabled" in body:
+            self._monitor_seek_enabled = self._ints(body).get("status") == 0
+        self._refresh_monitor_ready()
         event.signature_changed = before != asdict(self.signature)
         return event
 

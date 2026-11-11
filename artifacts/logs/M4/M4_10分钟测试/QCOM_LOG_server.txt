@@ -1,0 +1,150 @@
+[2026-11-11_18:42:49:578]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:42:57:230]boot.
+[2026-11-11_18:42:57:278]Flash Init Fail! ret = 0x80001341
+[2026-11-11_18:42:57:310]verify_public_rootkey secure verify disable!
+[2026-11-11_18:42:57:310]verify_params_key_area secure verify disable!
+[2026-11-11_18:42:57:310]verify_params_area_info secure verify disable!
+[2026-11-11_18:42:57:310]verify_image_key_area secure verify disable!
+[2026-11-11_18:42:57:310]verify_image_code_info secure verify disable!
+[2026-11-11_18:42:57:373]SSB Uart Init Succ!
+[2026-11-11_18:42:57:373]SSB Flash Init Succ!
+[2026-11-11_18:42:57:373]verify_image_key_area secure verify disable!
+[2026-11-11_18:42:57:373]verify_image_code_info secure verify disable!
+[2026-11-11_18:42:57:405]Flashboot Uart Init Succ!
+[2026-11-11_18:42:57:405]Flashboot Malloc Init Succ!
+[2026-11-11_18:42:57:405]Flash Init Succ!
+[2026-11-11_18:42:57:405]No need to fix SR!
+[2026-11-11_18:42:57:405]io level work in hw mode, level[chip]:0x33
+[2026-11-11_18:42:57:405]flashboot version : 1.10.102
+[2026-11-11_18:42:57:405][UPG] upgrade init OK!
+[2026-11-11_18:42:57:420]No need to upgrade...
+[2026-11-11_18:42:57:420]flash_encrypt disable.
+[2026-11-11_18:42:57:420]verify_image_key_area secure verify disable!
+[2026-11-11_18:42:57:420]verify_image_code_info secure verify disable!
+[2026-11-11_18:42:57:862]APP|dbg uart init ok.
+[2026-11-11_18:42:57:862][UPG] upgrade init OK!
+[2026-11-11_18:42:57:862]APP|init_sle_mac failed!!! 
+[2026-11-11_18:42:57:862]APP|init_dev_addr, mac_addr:0x4f,0x 0,0x73,0xec,0x**,0x**,
+[2026-11-11_18:42:57:862]xo_trim_temp_comp val:0 0
+[2026-11-11_18:42:57:862]los_at_plt_cmd_register EXCUTE
+[2026-11-11_18:42:57:862]APP|thread[11] func null
+[2026-11-11_18:42:57:862]cpu 0 entering scheduler
+[2026-11-11_18:42:57:942]APP|btc open
+[2026-11-11_18:42:57:942][RADAR_LOG] alg ctrl read from nv [1][2][0][0][1][1][20]
+[2026-11-11_18:42:57:942]device_main_init: 0!
+[2026-11-11_18:42:57:942]===hal_initialize_phy===226===
+[2026-11-11_18:42:57:942]device_module_init:: succ!
+[2026-11-11_18:42:57:942]cali_set_cali_mask:old[0x0] -> new[0x1fa2]
+
+[2026-11-11_18:42:57:942]fe_rf_initialize
+[2026-11-11_18:42:57:942]cali_offline_cali_entry enter
+[2026-11-11_18:42:57:973]cali_set_cali_done_flag:old[0x0] -> new[0x1]
+
+[2026-11-11_18:42:57:973]rf cali OK. time cost:22, ret:0
+
+[2026-11-11_18:42:57:973][linkscope]  ===== LinkScope W1 =====
+[2026-11-11_18:42:57:973][linkscope]  role=responder (B)
+[2026-11-11_18:42:57:973][linkscope]  [SELFTEST] pass=32 fail=0 -> PASS
+[2026-11-11_18:42:57:989][linkscope]  [B] responder booting, wait SLE stack 2000ms
+[2026-11-11_18:42:59:995][ACore] sle enable cbk in, result:0
+[2026-11-11_18:42:59:995]sle enable
+[2026-11-11_18:42:59:995][sle uart server] sle uart add service in
+[2026-11-11_18:42:59:995][sle uart server] sle uart add service, server_id:1, service_handle:1, property_handle:2
+[2026-11-11_18:43:00:014][sle uart server] start service cbk callback server_id:1, handle:1, status:0
+[2026-11-11_18:43:00:014][sle uart server] sle uart add service out
+[2026-11-11_18:43:00:014][sle uart server] sle_uart_local addr: 0xca 0xca 0xca 0xca 0xca 0xca 
+[2026-11-11_18:43:00:014][ACore] sle set announce param, handle:1, mode:3, min_interval:c8, max_interval:c8, tx_power: 18
+[2026-11-11_18:43:00:026][ACore] sle set announce param, own addr:0xca:**:**:**:ca:ca
+[2026-11-11_18:43:00:041][ACore] sle set announce param, peer addr:0x00:**:**:**:00:00
+[2026-11-11_18:43:00:041][sle uart server] data.announce_data_len = 6
+[2026-11-11_18:43:00:041][sle uart server] data.announce_data: 0x01 0x02 0x01 0x02 0x02 0x00 
+[2026-11-11_18:43:00:061][sle uart server] local_name_len = 9
+[2026-11-11_18:43:00:061][sle uart server] local_name: 0x6c 0x69 0x6e 0x6b 0x73 0x63 0x6f 0x70 0x65 
+[2026-11-11_18:43:00:061][sle uart server] data.seek_rsp_data_len = 14
+[2026-11-11_18:43:00:061][sle uart server] data.seek_rsp_data: 0x0c 0x02 0x0a 0x0a 0x0b 0x6c 0x69 0x6e 0x6b 0x73 0x63 0x6f 0x70 0x65 
+[2026-11-11_18:43:00:084][sle uart server] set announce data success.
+[2026-11-11_18:43:00:084][ACore] sle start announce in, adv_id:1
+[2026-11-11_18:43:00:084][ACore] sle adv cbk in, event:0 status:0
+[2026-11-11_18:43:00:084][ACore] sle adv cbk in, event:1 status:0
+[2026-11-11_18:43:00:084][ACore] sle adv cbk in, event:2 status:0
+[2026-11-11_18:43:00:120][ACore] sle adv cbk in, event:3 status:0
+[2026-11-11_18:43:00:120][sle uart server] sle announce enable callback id:01, state:0
+[2026-11-11_18:43:00:120][sle uart server] init ok
+[2026-11-11_18:43:00:120][linkscope]  [B] ready, waiting for REQ (name=linkscope)
+[2026-11-11_18:43:00:603][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:43:01:099][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:43:01:597][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:43:01:862]xo update temp:3,diff:0,xo:0x3083c
+[2026-11-11_18:43:02:098][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:43:02:596][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:43:03:108][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:43:08:977]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:43:18:972]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:43:28:974]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:43:38:974]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:43:48:968]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:43:58:968]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:44:08:969]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:44:18:984]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:44:28:981]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:44:38:979]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:44:48:984]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:44:58:992]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:45:08:988]APP|[SYS INFO] mem: used:99420, free:266488; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:45:18:981]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:45:28:978]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:45:38:982]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:45:48:990]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:45:58:977]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:46:08:990]APP|[SYS INFO] mem: used:99568, free:266340; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:46:18:989]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:46:28:991]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:46:38:985]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:46:48:987]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:46:58:991]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:47:08:993]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:47:18:994]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:47:29:003]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:47:38:991]APP|[SYS INFO] mem: used:99556, free:266352; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:47:48:993]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:47:58:999]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:48:08:987]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:48:18:994]APP|[SYS INFO] mem: used:99568, free:266340; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:48:28:996]APP|[SYS INFO] mem: used:99568, free:266340; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:48:39:004]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:48:49:005]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:48:58:990]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:49:09:003]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:49:19:000]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:49:29:003]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:49:39:007]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:49:49:014]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:49:59:007]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:50:08:998]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:50:19:001]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:50:29:006]APP|[SYS INFO] mem: used:99436, free:266472; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:50:38:997]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:50:49:016]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:50:59:011]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:51:09:014]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:51:19:001]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:51:29:002]APP|[SYS INFO] mem: used:99556, free:266352; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:51:39:017]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:51:49:010]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:51:59:009]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:52:09:014]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:52:19:013]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:52:29:018]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:52:39:019]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:52:49:020]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:52:59:020]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:53:09:018]APP|[SYS INFO] mem: used:99436, free:266472; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:53:19:014]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:53:29:016]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:53:39:016]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:53:49:032]APP|[SYS INFO] mem: used:99568, free:266340; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:53:59:013]APP|[SYS INFO] mem: used:99568, free:266340; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:54:09:032]APP|[SYS INFO] mem: used:99560, free:266348; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:54:19:022]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:54:29:026]APP|[SYS INFO] mem: used:99420, free:266488; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:54:39:035]APP|[SYS INFO] mem: used:99588, free:266320; log: drop/all[0/0], at_recv 0.

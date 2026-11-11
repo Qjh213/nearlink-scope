@@ -45,6 +45,14 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(device["events"]["11"]["interval_p50_us"], None)
         self.assertEqual(metrics["board_latest_mon"]["drop"], 0)
 
+    def test_monitor_ready_follows_current_seek_enable(self):
+        parser = LineParser()
+        parser.signature.measurement_ready = True
+        parser.feed("[linkscope] role=monitor\n")
+        self.assertFalse(parser.signature.measurement_ready)
+        parser.feed("[linkscope] [MON] seek enabled status=0x0\n")
+        self.assertTrue(parser.signature.measurement_ready)
+
     def test_malformed_adv_is_rejected(self):
         session = feed_lines([
             "ADV,1,10,3,nothex,-40,0,1,aa\n",

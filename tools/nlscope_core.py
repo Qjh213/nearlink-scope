@@ -157,6 +157,9 @@ class LineParser:
         if "role=" in body:
             values = dict(KV.findall(body))
             self.signature.role = values.get("role", self.signature.role)
+            if self.signature.role == "monitor":
+                # A fresh boot signature invalidates readiness retained by a resumed PC session.
+                self.signature.measurement_ready = False
         if "link=" in body:
             values = dict(KV.findall(body))
             self.signature.link = values.get("link", self.signature.link)
@@ -178,6 +181,8 @@ class LineParser:
             self.signature.interval = values.get("intv", self.signature.interval)
             self.signature.latency = values.get("latency", self.signature.latency)
         if "measurement ready" in body or "link ready" in body:
+            self.signature.measurement_ready = True
+        if "[MON] seek enabled" in body and self._ints(body).get("status") == 0:
             self.signature.measurement_ready = True
         event.signature_changed = before != asdict(self.signature)
         return event

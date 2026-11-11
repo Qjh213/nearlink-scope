@@ -350,18 +350,19 @@ class ScopeApp:
                 self.last_draw_n = -1
             else:
                 event = self.parser.feed(item, received_at=datetime.now())
-                if self.strict_live_gate and event.sample and not self.parser.signature.measurement_ready:
+                if (self.strict_live_gate and (event.sample or event.adv)
+                        and not self.parser.signature.measurement_ready):
                     self.pre_ready_samples += 1
                     event.sample = None
+                    event.adv = None
                 if ((event.sample or event.adv) and self.capture_started_monotonic is None and self.strict_live_gate
                         and not self.paused and not self.stop_event.is_set()):
                     self.capture_started_monotonic = time.monotonic()
                     self.capture_frozen_seconds = 0.0
                 self.session.add(event, self.parser.signature)
-                monitor_mode = self.parser.signature.role == "monitor" or bool(self.session.adv_records)
-                if self.strict_live_gate and not monitor_mode and not self.parser.signature.measurement_ready:
+                if self.strict_live_gate and not self.parser.signature.measurement_ready:
                     self.status.set(
-                        f"等待 measurement-ready：请复位 COM4→COM3 | 原始行 {len(self.session.raw_lines)} | "
+                        f"等待本次启动就绪：请复位 COM4→COM3 | 原始行 {len(self.session.raw_lines)} | "
                         f"已忽略中途样本 {self.pre_ready_samples}"
                     )
                 else:

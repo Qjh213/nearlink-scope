@@ -244,6 +244,7 @@ class ScopeApp:
             tree.heading(key, text=title)
             tree.column(key, width=width, anchor="center")
         tree.pack(fill="both", expand=True, padx=10, pady=8)
+        tree.bind("<Button-1>", self._toggle_aux_selection)
         tree.bind("<<TreeviewSelect>>", lambda _event: self._update_aux_actions())
         footer = self.ttk.Frame(window, padding=(10, 0, 10, 10))
         footer.pack(fill="x")
@@ -292,6 +293,25 @@ class ScopeApp:
         return next(
             (terminal for terminal in self._live_aux_terminals() if str(id(terminal)) == selected_id), None
         )
+
+    def _toggle_aux_selection(self, event):
+        """让列表行支持再次单击取消选择，空白处单击也清除选择。"""
+        tree = self.serial_workbench_tree
+        if tree is None:
+            return None
+        item_id = tree.identify_row(event.y)
+        selection = tree.selection()
+        if not item_id:
+            if selection:
+                tree.selection_remove(*selection)
+                self._update_aux_actions()
+            return "break"
+        if item_id in selection:
+            tree.selection_remove(item_id)
+            tree.focus("")
+            self._update_aux_actions()
+            return "break"
+        return None
 
     def _select_aux_terminal(self, terminal) -> None:
         tree = self.serial_workbench_tree

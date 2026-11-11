@@ -296,6 +296,12 @@ class Session:
             return 0.0
         return max(0.0, (stamps[-1] - stamps[0]).total_seconds())
 
+    def monitor_span_seconds(self) -> float:
+        stamps = [row.wall_time for row in self.adv_records if row.wall_time is not None]
+        if len(stamps) < 2:
+            return 0.0
+        return max(0.0, (stamps[-1] - stamps[0]).total_seconds())
+
     def histogram(self, bins: int = 24) -> list[tuple[float, float, int]]:
         values = [row.rtt_us / 1000.0 for row in self.samples]
         if not values:
@@ -318,17 +324,27 @@ class Session:
         raw_path.write_text("\n".join(self.raw_lines) + ("\n" if self.raw_lines else ""), encoding="utf-8")
         with csv_path.open("w", newline="", encoding="utf-8-sig") as handle:
             writer = csv.writer(handle)
-            writer.writerow(("seq", "t1_us", "t4_us", "rtt_us", "bproc_us", "dlt_us", "wall_time"))
-            for row in self.samples:
-                writer.writerow((row.seq, row.t1_us, row.t4_us, row.rtt_us, row.bproc_us, row.dlt_us,
-                                 row.wall_time.isoformat(timespec="milliseconds") if row.wall_time else ""))
+            if self.adv_records and not self.samples:
+                writer.writerow(("seq", "t_us", "event", "addr_id", "rssi_dbm", "data_status",
+                                 "data_len", "payload_hex", "wall_time"))
+                for row in self.adv_records:
+                    writer.writerow((row.seq, row.t_us, row.event, row.addr_id, row.rssi_dbm,
+                                     row.data_status, row.data_len, row.payload_hex,
+                                     row.wall_time.isoformat(timespec="milliseconds") if row.wall_time else ""))
+            else:
+                writer.writerow(("seq", "t1_us", "t4_us", "rtt_us", "bproc_us", "dlt_us", "wall_time"))
+                for row in self.samples:
+                    writer.writerow((row.seq, row.t1_us, row.t4_us, row.rtt_us, row.bproc_us, row.dlt_us,
+                                     row.wall_time.isoformat(timespec="milliseconds") if row.wall_time else ""))
         payload = {"platform_signature": asdict(self.signature), "pc_exact_metrics": self.metrics(),
-                   "board_latest_sum": self.counters}
+                   "monitor_metrics": self.monitor_metrics(), "board_latest_sum": self.counters}
         meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         report_path.write_text(self.markdown_report(), encoding="utf-8")
         return raw_path, csv_path, meta_path, report_path
 
     def markdown_report(self) -> str:
+        if self.adv_records and not self.samples:
+            return self.monitor_markdown_report()
         m = self.metrics()
         def ms(key: str) -> str:
             value = m[key]
@@ -366,6 +382,39 @@ class Session:
 RTT 使用 initiator 板端同一时钟的 `t4-t1`；PC 串口到达时间不参与链路计时。PC 分位数由已落盘原始样本精确排序得到；板端 SUM 使用内存受限的对数直方图插值，两者允许存在小幅差异。`jitter` 在两端均定义为相邻 RTT 差分绝对值的平均值。本报告描述当前固件、SDK、配置与环境，不外推为协议标准的固定性能。
 """
 
+    def monitor_markdown_report(self) -> str:
+        metrics = self.monitor_metrics()
+        rows = []
+        for addr_id, device in metrics["devices"].items():
+            events = ", ".join(f"{key}: {value['n']}" for key, value in device["events"].items())
+            rows.append(
+                f"| `{addr_id}` | {device['n']} | {device['rssi_min_dbm']} / {device['rssi_p50_dbm']} / "
+                f"{device['rssi_max_dbm']} | {device['invalid_rssi']} | {events} |"
+            )
+        device_table = "\n".join(rows) or "| — | 0 | — | 0 | — |"
+        return f"""# LinkScope SLE被动监测报告
+
+## 平台签名
+
+`{self.signature.compact()}`
+
+## 会话摘要
+
+- 有效ADV报告：{metrics['n']}
+- QCOM记录跨度：{self.monitor_span_seconds():.3f} s
+- 序列诊断：`{json.dumps(metrics['sequence'], ensure_ascii=False)}`
+- 板端最近MON：`{json.dumps(metrics['board_latest_mon'], ensure_ascii=False)}`
+
+| 地址ID | 报告数 | RSSI min / p50 / max (dBm) | 无效RSSI | 各event报告数 |
+|---|---:|---:|---:|---|
+{device_table}
+
+## 口径
+
+报告间隔只在同一地址ID、同一event类型内计算，且跨复位不连算。它是SDK seek回调的报告到达间隔，
+不是空口广播周期；没有广播端序号时，序列诊断也不能解释为空口丢包率。
+"""
+
 
 def load_log(path: Path) -> Session:
     if path.suffix.lower() == ".csv":
@@ -385,11 +434,19 @@ def load_csv(path: Path) -> Session:
         for row in csv.DictReader(handle):
             try:
                 wall = datetime.fromisoformat(row["wall_time"]) if row.get("wall_time") else None
-                session.samples.append(Sample(
-                    seq=int(row["seq"]), t1_us=int(row["t1_us"]), t4_us=int(row["t4_us"]),
-                    rtt_us=int(row["rtt_us"]), bproc_us=int(row["bproc_us"]), dlt_us=int(row["dlt_us"]),
-                    wall_time=wall,
-                ))
+                if "addr_id" in row:
+                    session.adv_records.append(AdvRecord(
+                        seq=int(row["seq"]), t_us=int(row["t_us"]), event=int(row["event"]),
+                        addr_id=row["addr_id"].lower(), rssi_dbm=int(row["rssi_dbm"]),
+                        data_status=int(row["data_status"]), data_len=int(row["data_len"]),
+                        payload_hex=row["payload_hex"].lower(), wall_time=wall,
+                    ))
+                else:
+                    session.samples.append(Sample(
+                        seq=int(row["seq"]), t1_us=int(row["t1_us"]), t4_us=int(row["t4_us"]),
+                        rtt_us=int(row["rtt_us"]), bproc_us=int(row["bproc_us"]), dlt_us=int(row["dlt_us"]),
+                        wall_time=wall,
+                    ))
             except (KeyError, TypeError, ValueError):
                 continue
     meta_path = path.with_suffix(".json")

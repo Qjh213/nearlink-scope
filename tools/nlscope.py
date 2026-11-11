@@ -14,7 +14,7 @@ from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
 
-APP_VERSION = "M3.0.6"
+APP_VERSION = "M4.0.0-dev"
 
 
 def discover_serial_ports() -> list[tuple[str, str]]:
@@ -38,6 +38,11 @@ def discover_serial_ports() -> list[tuple[str, str]]:
 
 
 def print_summary(session: Session) -> None:
+    if session.adv_records:
+        metrics = session.monitor_metrics()
+        print(session.signature.compact())
+        print(f"adv={metrics['n']} devices={len(metrics['devices'])} sequence={metrics['sequence']}")
+        return
     metrics = session.metrics()
     print(session.signature.compact())
     print(
@@ -70,6 +75,7 @@ class ScopeApp:
         self.session = Session()
         self.parser = LineParser()
         self.last_draw_n = -1
+        self.last_draw_monitor_n = -1
 
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
@@ -93,15 +99,18 @@ class ScopeApp:
         metrics = ttk.Frame(root, padding=(8, 6))
         metrics.pack(fill="x")
         self.metric_vars = {}
+        self.metric_labels = {}
         metric_names = ("采集时长", "n", "p50精确", "p90精确", "p99精确", "p99.9精确", "max",
                         "jitter", "timeout", "dup", "ooo", "bad", "drop")
         for index, name in enumerate(metric_names):
             box = ttk.Frame(metrics, padding=5)
             box.grid(row=index // 7, column=index % 7, sticky="ew")
-            ttk.Label(box, text=name, foreground="#587184").pack()
+            label = tk.StringVar(value=name)
+            ttk.Label(box, textvariable=label, foreground="#587184").pack()
             var = tk.StringVar(value="—")
             ttk.Label(box, textvariable=var, font=("Segoe UI", 11, "bold")).pack()
             self.metric_vars[name] = var
+            self.metric_labels[name] = label
         for column in range(7):
             metrics.columnconfigure(column, weight=1)
 
@@ -145,6 +154,7 @@ class ScopeApp:
         self.capture_frozen_seconds = 0.0
         self.paused = False
         self.last_draw_n = -1
+        self.last_draw_monitor_n = -1
 
     def _begin_source(self, source: str) -> tuple[int, threading.Event]:
         self.stop()
@@ -171,7 +181,7 @@ class ScopeApp:
         self.stop_event.set()
         # 立即使旧 worker 已排队但尚未处理的尾部消息失效；否则尾部 S 行会再次启动计时并清零冻结值。
         self.source_id += 1
-        self.paused = bool(self.session.raw_lines or self.session.samples)
+        self.paused = bool(self.session.raw_lines or self.session.samples or self.session.adv_records)
         self.status.set(
             f"已暂停，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
             "点击开始串口可继续，点击清空才会归零"
@@ -191,7 +201,8 @@ class ScopeApp:
 
     def _capture_seconds(self) -> float:
         if not self.strict_live_gate:
-            return self.session.sample_span_seconds()
+            return (self.session.monitor_span_seconds() if self.session.adv_records
+                    else self.session.sample_span_seconds())
         if self.capture_started_monotonic is not None:
             return time.monotonic() - self.capture_started_monotonic
         return self.capture_frozen_seconds
@@ -251,7 +262,8 @@ class ScopeApp:
             from tkinter import messagebox
             messagebox.showerror("没有可用串口", "请连接开发板并点击“刷新”。")
             return
-        resume = self.paused and self.active_port == port and bool(self.session.raw_lines or self.session.samples)
+        resume = (self.paused and self.active_port == port
+                  and bool(self.session.raw_lines or self.session.samples or self.session.adv_records))
         if resume:
             self.source_id += 1
             self.stop_event = threading.Event()
@@ -260,7 +272,7 @@ class ScopeApp:
             self.paused = False
             self._resume_capture_clock()
             self.status.set(
-                f"继续采集 {port}，已保留 {len(self.session.samples)} 个样本和 "
+                f"继续采集 {port}，已保留 {len(self.session.samples) + len(self.session.adv_records)} 个样本和 "
                 f"{self._format_duration(self._capture_seconds())}"
             )
         else:
@@ -327,7 +339,9 @@ class ScopeApp:
                         "点击开始串口可继续，点击清空才会归零"
                     )
                 else:
-                    self.status.set(f"数据源结束，共 {len(self.session.samples)} 个样本")
+                    self.status.set(
+                        f"数据源结束，共 {len(self.session.samples) + len(self.session.adv_records)} 个样本"
+                    )
             elif isinstance(item, Exception):
                 self.status.set(f"数据源错误：{item}")
             elif isinstance(item, tuple) and item and item[0] == "csv_session":
@@ -339,12 +353,13 @@ class ScopeApp:
                 if self.strict_live_gate and event.sample and not self.parser.signature.measurement_ready:
                     self.pre_ready_samples += 1
                     event.sample = None
-                if (event.sample and self.capture_started_monotonic is None and self.strict_live_gate
+                if ((event.sample or event.adv) and self.capture_started_monotonic is None and self.strict_live_gate
                         and not self.paused and not self.stop_event.is_set()):
                     self.capture_started_monotonic = time.monotonic()
                     self.capture_frozen_seconds = 0.0
                 self.session.add(event, self.parser.signature)
-                if self.strict_live_gate and not self.parser.signature.measurement_ready:
+                monitor_mode = self.parser.signature.role == "monitor" or bool(self.session.adv_records)
+                if self.strict_live_gate and not monitor_mode and not self.parser.signature.measurement_ready:
                     self.status.set(
                         f"等待 measurement-ready：请复位 COM4→COM3 | 原始行 {len(self.session.raw_lines)} | "
                         f"已忽略中途样本 {self.pre_ready_samples}"
@@ -352,10 +367,11 @@ class ScopeApp:
                 else:
                     self.status.set(
                         f"正式采集中 {self.source_label} | 原始行 {len(self.session.raw_lines)} | "
-                        f"有效样本 {len(self.session.samples)}"
+                        f"有效样本 {len(self.session.samples) + len(self.session.adv_records)}"
                     )
             drained += 1
-        if len(self.session.samples) != self.last_draw_n:
+        if (len(self.session.samples) != self.last_draw_n
+                or len(self.session.adv_records) != self.last_draw_monitor_n):
             self.draw()
         self.metric_vars["采集时长"].set(self._format_duration(self._capture_seconds()))
         self.root.after(100, self.poll)
@@ -394,11 +410,20 @@ class ScopeApp:
         canvas.create_text(8, bottom, anchor="sw", text=f"{low:.2f}", fill="#607d95")
 
     def draw(self, force: bool = False) -> None:
-        if not force and len(self.session.samples) == self.last_draw_n:
+        if (not force and len(self.session.samples) == self.last_draw_n
+                and len(self.session.adv_records) == self.last_draw_monitor_n):
             return
         self.last_draw_n = len(self.session.samples)
+        self.last_draw_monitor_n = len(self.session.adv_records)
+        if self.session.adv_records or self.session.signature.role == "monitor":
+            self._draw_monitor()
+            return
         m = self.session.metrics()
         self.signature.set("平台签名：" + self.session.signature.compact())
+        for key, label in zip(self.metric_labels, (
+                "采集时长", "n", "p50精确", "p90精确", "p99精确", "p99.9精确", "max",
+                "jitter", "timeout", "dup", "ooo", "bad", "drop")):
+            self.metric_labels[key].set(label)
         self.metric_vars["采集时长"].set(self._format_duration(self._capture_seconds()))
         for key, metric in (("n", "n"), ("timeout", "to"), ("dup", "dup"), ("ooo", "ooo"), ("bad", "bad"), ("drop", "drop")):
             self.metric_vars[key].set(str(m[metric]))
@@ -410,6 +435,96 @@ class ScopeApp:
         hist = self.session.histogram(24)
         self._draw_hist(hist)
         self._draw_cdf()
+
+    def _draw_monitor(self) -> None:
+        metrics = self.session.monitor_metrics()
+        devices = metrics["devices"]
+        sequence = metrics["sequence"]
+        all_rssi = [row.rssi_dbm for row in self.session.adv_records if row.rssi_dbm != 127]
+        labels = ("采集时长", "ADV", "设备", "RSSI p10", "RSSI p50", "RSSI p90", "RSSI max",
+                  "无效RSSI", "gap", "dup", "ooo", "reset", "queue drop")
+        for key, label in zip(self.metric_labels, labels):
+            self.metric_labels[key].set(label)
+        primary = next(iter(devices.values()), {})
+        values = (
+            self._format_duration(self._capture_seconds()), str(metrics["n"]), str(len(devices)),
+            self._dbm(primary.get("rssi_p10_dbm")), self._dbm(primary.get("rssi_p50_dbm")),
+            self._dbm(primary.get("rssi_p90_dbm")), self._dbm(primary.get("rssi_max_dbm")),
+            str(sum(device["invalid_rssi"] for device in devices.values())),
+            str(sequence["gaps"]), str(sequence["duplicates"]), str(sequence["out_of_order"]),
+            str(sequence["resets"]), str(metrics["board_latest_mon"].get("drop", 0)),
+        )
+        for key, value in zip(self.metric_vars, values):
+            self.metric_vars[key].set(value)
+        self.signature.set("平台签名：" + self.session.signature.compact())
+        self._line_chart(self.time_canvas, all_rssi[-1200:], "RSSI 时间序列 · 最近 1200 点 (dBm)")
+        self._draw_monitor_devices(devices)
+        self._draw_monitor_intervals()
+
+    @staticmethod
+    def _dbm(value) -> str:
+        return "—" if value is None else f"{value} dBm"
+
+    def _draw_monitor_devices(self, devices) -> None:
+        c = self.hist_canvas
+        c.delete("all")
+        width = max(10, c.winfo_width())
+        c.create_text(12, 10, anchor="nw", text="监测设备", fill="#17324d", font=("Segoe UI", 11, "bold"))
+        if not devices:
+            c.create_text(width / 2, max(10, c.winfo_height()) / 2, text="等待ADV报告", fill="#7890a3")
+            return
+        c.create_text(18, 42, anchor="nw", text="地址ID", fill="#587184")
+        c.create_text(170, 42, anchor="nw", text="报告数", fill="#587184")
+        c.create_text(265, 42, anchor="nw", text="RSSI min / p50 / max", fill="#587184")
+        c.create_text(475, 42, anchor="nw", text="events", fill="#587184")
+        for index, (addr_id, device) in enumerate(list(devices.items())[:10]):
+            y = 68 + index * 24
+            events = "  ".join(f"{key}:{item['n']}" for key, item in device["events"].items())
+            c.create_text(18, y, anchor="nw", text=addr_id, fill="#17324d", font=("Consolas", 10))
+            c.create_text(170, y, anchor="nw", text=str(device["n"]), fill="#17324d")
+            rssi = f"{device['rssi_min_dbm']} / {device['rssi_p50_dbm']} / {device['rssi_max_dbm']}"
+            c.create_text(265, y, anchor="nw", text=rssi, fill="#17324d")
+            c.create_text(475, y, anchor="nw", text=events, fill="#17324d")
+
+    def _draw_monitor_intervals(self) -> None:
+        c = self.cdf_canvas
+        c.delete("all")
+        width, height = max(10, c.winfo_width()), max(10, c.winfo_height())
+        c.create_text(12, 10, anchor="nw", text="同设备、同event报告间隔 CDF",
+                      fill="#17324d", font=("Segoe UI", 11, "bold"))
+        groups = {}
+        previous = {}
+        for row in self.session.adv_records:
+            key = (row.addr_id, row.event)
+            prior = previous.get(key)
+            if prior is not None and row.seq > prior.seq:
+                groups.setdefault(key, []).append(((row.t_us - prior.t_us) & 0xFFFFFFFF) / 1000.0)
+            previous[key] = row
+        groups = {key: values for key, values in groups.items() if values}
+        if not groups:
+            c.create_text(width / 2, height / 2, text="等待间隔样本", fill="#7890a3")
+            return
+        left, top, right, bottom = 45, 42, width - 15, height - 30
+        all_values = [value for values in groups.values() for value in values]
+        low, high = min(all_values), max(all_values)
+        if high <= low:
+            high = low + 1
+        colors = ("#20aa92", "#526de0", "#e08632", "#a657c7")
+        for group_index, (key, values) in enumerate(sorted(groups.items())):
+            ordered = sorted(values)
+            if len(ordered) > 1000:
+                step = len(ordered) / 1000
+                ordered = [ordered[int(i * step)] for i in range(1000)]
+            points = []
+            for index, value in enumerate(ordered):
+                points.extend((left + (right - left) * (value - low) / (high - low),
+                               bottom - (bottom - top) * index / max(1, len(ordered) - 1)))
+            color = colors[group_index % len(colors)]
+            if len(points) >= 4:
+                c.create_line(*points, fill=color, width=2)
+            c.create_text(left + group_index * 150, 25, anchor="nw", text=f"{key[0]} e{key[1]}", fill=color)
+        c.create_text(left, bottom + 4, anchor="nw", text=f"{low:.2f} ms", fill="#607d95")
+        c.create_text(right, bottom + 4, anchor="ne", text=f"{high:.2f} ms", fill="#607d95")
 
     def _draw_hist(self, hist) -> None:
         c = self.hist_canvas
@@ -467,7 +582,7 @@ def main() -> int:
         print_summary(session)
         if args.export:
             print("\n".join(str(p) for p in session.export(args.export, args.replay.stem)))
-        return 0 if session.samples else 2
+        return 0 if (session.samples or session.adv_records) else 2
 
     if args.serial:
         try:
@@ -510,7 +625,7 @@ def main() -> int:
         if args.export:
             stem = f"linkscope-{args.serial.lower()}-{time.strftime('%Y%m%d-%H%M%S')}"
             print("\n".join(str(p) for p in session.export(args.export, stem)))
-        return 0 if session.samples else 2
+        return 0 if (session.samples or session.adv_records) else 2
 
     import tkinter as tk
     root = tk.Tk()

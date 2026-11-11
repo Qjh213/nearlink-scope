@@ -44,3 +44,7 @@ QCOM打开时先收到旧会话seq 1549起的尾部；18:05:46复位COM3后形�
 edd72873b28bb4ce9a0752c3514ab39ef536d333e3fe7270f6cd0c9310e77050  monitor_COM3.txt
 da1b3f0c2fa08cc930e1b43ad88cebb7a925bba654df5400d0293d9275f2410b  advertiser_COM4.txt
 ```
+
+同目录 `monitor_COM3.log/.csv/.json/.md` 是M4 PC工具使用完整原始文件回放生成的四类验收导出。
+它们包含文件中的旧会话尾部和复位后的完整会话，因此合计3,489条、reset=1；正式实验数字仍以上述
+复位后seq 1→3,134的完整会话为准。

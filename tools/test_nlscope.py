@@ -64,6 +64,22 @@ class ParserTests(unittest.TestCase):
         event = metrics["devices"]["12345678"]["events"]["3"]
         self.assertEqual(event["interval_max_us"], 150)
 
+    def test_monitor_export_and_csv_replay(self):
+        session = feed_lines([
+            "[2026-11-11_18:00:00:000][linkscope] role=monitor\n",
+            "[2026-11-11_18:00:00:010]ADV,1,100,3,12345678,-45,0,1,aa\n",
+            "[2026-11-11_18:00:00:020]ADV,2,200,3,12345678,-44,0,1,bb\n",
+        ])
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path, csv_path, json_path, report_path = session.export(Path(directory), "monitor")
+            self.assertIn("addr_id", csv_path.read_text(encoding="utf-8-sig"))
+            self.assertIn("monitor_metrics", json_path.read_text(encoding="utf-8"))
+            self.assertIn("SLE被动监测报告", report_path.read_text(encoding="utf-8"))
+            loaded = load_log(csv_path)
+            self.assertEqual(len(loaded.adv_records), 2)
+            self.assertEqual(loaded.adv_records[1].payload_hex, "bb")
+            self.assertTrue(raw_path.exists())
+
     def test_port_discovery_shape(self):
         for device, display in discover_serial_ports():
             self.assertTrue(device)

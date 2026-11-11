@@ -6,6 +6,7 @@ from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines, load_log
 from nlscope import ScopeApp, discover_serial_ports
+from serial_terminal import SerialSettings, encode_outbound, format_received
 
 
 LINES = [
@@ -23,6 +24,19 @@ LINES = [
 
 
 class ParserTests(unittest.TestCase):
+    def test_serial_terminal_payload_encoding(self):
+        self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")
+        self.assertEqual(encode_outbound("01 aB ff", True, False), b"\x01\xab\xff")
+        with self.assertRaises(ValueError):
+            encode_outbound("ABC", True, False)
+
+    def test_serial_terminal_format_and_settings(self):
+        self.assertEqual(format_received(b"A\xff", False), "A�")
+        self.assertEqual(format_received(b"\x01\xab", True), "01 AB")
+        SerialSettings("COM4", 921600, 4, 1.5, "Mark", "HW Ctrl Flow").validate()
+        with self.assertRaises(ValueError):
+            SerialSettings("", 115200).validate()
+
     def test_monitor_adv_parse_and_grouped_metrics(self):
         lines = [
             "[2026-11-11_18:00:00:000][linkscope] role=monitor\n",

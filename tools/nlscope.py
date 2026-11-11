@@ -4,17 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import queue
 import re
 import sys
 import threading
 import time
 from datetime import datetime
+from dataclasses import asdict
 from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
 
-APP_VERSION = "M4.0.0-dev"
+APP_VERSION = "M5.0.0-dev"
 
 
 def discover_serial_ports() -> list[tuple[str, str]]:
@@ -76,6 +78,7 @@ class ScopeApp:
         self.parser = LineParser()
         self.last_draw_n = -1
         self.last_draw_monitor_n = -1
+        self.aux_terminal = None
 
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
@@ -90,6 +93,10 @@ class ScopeApp:
         ttk.Button(controls, text="停止", command=self.stop).pack(side="left")
         ttk.Button(controls, text="清空", command=self.clear).pack(side="left", padx=6)
         ttk.Button(controls, text="导出", command=self.export).pack(side="left")
+        ttk.Button(controls, text="辅助串口", command=self.open_aux_terminal).pack(side="left", padx=6)
+        ttk.Button(controls, text="双串口开始", command=self.start_dual).pack(side="left")
+        ttk.Button(controls, text="双串口停止", command=self.stop_dual).pack(side="left", padx=6)
+        ttk.Button(controls, text="联合导出", command=self.export_dual).pack(side="left")
         self.status = tk.StringVar(value="就绪：可打开 M1/M2 QCOM 日志回放")
         ttk.Label(controls, textvariable=self.status).pack(side="right")
 
@@ -129,6 +136,75 @@ class ScopeApp:
 
         self.root.after(100, self.poll)
         self.refresh_ports(preferred="COM3")
+
+    def open_aux_terminal(self):
+        from serial_terminal import SerialTerminalWindow
+        if self.aux_terminal is not None and self.aux_terminal.window.winfo_exists():
+            self.aux_terminal.window.lift()
+            self.aux_terminal.window.focus_force()
+            return self.aux_terminal
+        self.aux_terminal = SerialTerminalWindow(
+            self.root, discover_serial_ports,
+            reserved_ports=lambda: ({self.active_port} if self.active_port and not self.stop_event.is_set() else set()),
+        )
+        return self.aux_terminal
+
+    def start_dual(self) -> None:
+        """Open responder terminal first, then start the gated analysis serial."""
+        terminal = self.open_aux_terminal()
+        if not terminal.is_open:
+            terminal.open_port()
+        if not terminal.is_open:
+            self.status.set("双串口启动失败：辅助串口未打开")
+            return
+        self.start_serial()
+        if not self.stop_event.is_set():
+            self.status.set("双串口已打开：请先复位COM4，再复位COM3，等待完整平台签名")
+
+    def stop_dual(self) -> None:
+        self.stop()
+        if self.aux_terminal is not None and self.aux_terminal.is_open:
+            self.aux_terminal.close_port()
+        self.status.set(
+            f"双串口已停止，数据与时长已保留：{self._format_duration(self._capture_seconds())}"
+        )
+
+    def export_dual(self) -> None:
+        from tkinter import filedialog, messagebox
+        if self.aux_terminal is None:
+            messagebox.showerror("没有辅助日志", "请先打开辅助串口终端并完成一次双串口采集。")
+            return
+        directory = filedialog.askdirectory(title="选择本轮实验导出目录")
+        if not directory:
+            return
+        target = Path(directory)
+        paths = list(self.session.export(target, "initiator_COM3"))
+        responder_path = target / "responder_COM4.log"
+        self.aux_terminal.write_log(responder_path)
+        settings = {
+            "port": self.aux_terminal.active_port or self.aux_terminal.port_map.get(self.aux_terminal.port.get(), ""),
+            "baudrate": int(self.aux_terminal.baudrate.get()),
+            "byte_size": int(self.aux_terminal.byte_size.get()),
+            "stop_bits": float(self.aux_terminal.stop_bits.get()),
+            "parity": self.aux_terminal.parity.get(),
+            "flow_control": self.aux_terminal.flow_control.get(),
+            "dtr": self.aux_terminal.dtr.get(), "rts": self.aux_terminal.rts.get(),
+        }
+        run_path = target / "run.json"
+        run_path.write_text(json.dumps({
+            "app_version": APP_VERSION,
+            "exported_at": datetime.now().isoformat(timespec="seconds"),
+            "analysis_port": self.active_port,
+            "auxiliary_serial": settings,
+            "platform_signature": asdict(self.session.signature),
+            "capture_seconds": self._capture_seconds(),
+            "analysis_samples": len(self.session.samples),
+            "monitor_reports": len(self.session.adv_records),
+            "auxiliary_rx_bytes": self.aux_terminal.rx_bytes,
+            "auxiliary_rx_chunks": self.aux_terminal.rx_chunks,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        paths.extend((responder_path, run_path))
+        messagebox.showinfo("联合导出完成", "\n".join(str(path) for path in paths))
 
     def refresh_ports(self, preferred: str | None = None) -> None:
         current_display = self.port.get()
@@ -273,6 +349,10 @@ class ScopeApp:
         if not port:
             from tkinter import messagebox
             messagebox.showerror("没有可用串口", "请连接开发板并点击“刷新”。")
+            return
+        if self.aux_terminal is not None and self.aux_terminal.is_open and self.aux_terminal.active_port == port:
+            from tkinter import messagebox
+            messagebox.showerror("串口已占用", f"{port} 已被辅助串口终端打开。")
             return
         resume = (self.paused and self.active_port == port
                   and bool(self.session.raw_lines or self.session.samples or self.session.adv_records))

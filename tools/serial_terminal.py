@@ -313,3 +313,102 @@ class SerialTerminalWindow:
         self.close_port()
         self.window.destroy()
 
+
+class AnalysisSerialConsoleWindow:
+    """Mirror the main analysis handle without opening the same COM port twice."""
+
+    def __init__(self, root, send_callback: Callable[[bytes], int], port_callback: Callable[[], str]) -> None:
+        import tkinter as tk
+        from tkinter import scrolledtext, ttk
+
+        self.tk = tk
+        self.send_callback = send_callback
+        self.port_callback = port_callback
+        self.window = tk.Toplevel(root)
+        self.window.title("LinkScope · 分析端原始终端")
+        self.window.geometry("960x650")
+        self.log_lines: list[str] = []
+        self.rx_bytes = 0
+        self.rx_chunks = 0
+
+        header = ttk.Frame(self.window, padding=8)
+        header.pack(fill="x")
+        ttk.Label(header, text="共享主分析串口，不重复打开COM端口").pack(side="left")
+        self.status = tk.StringVar(value="等待主分析串口")
+        ttk.Label(header, textvariable=self.status).pack(side="right")
+
+        self.console = scrolledtext.ScrolledText(
+            self.window, wrap="none", font=("Consolas", 10), state="disabled"
+        )
+        self.console.pack(fill="both", expand=True, padx=8, pady=4)
+
+        options = ttk.Frame(self.window, padding=(8, 4))
+        options.pack(fill="x")
+        self.show_time = tk.BooleanVar(value=True)
+        self.hex_display = tk.BooleanVar(value=False)
+        self.hex_input = tk.BooleanVar(value=False)
+        self.send_enter = tk.BooleanVar(value=False)
+        ttk.Checkbutton(options, text="Show Time", variable=self.show_time).pack(side="left")
+        ttk.Checkbutton(options, text="Show In HEX", variable=self.hex_display).pack(side="left", padx=6)
+        ttk.Checkbutton(options, text="HEX String", variable=self.hex_input).pack(side="left", padx=6)
+        ttk.Checkbutton(options, text="Send With Enter", variable=self.send_enter).pack(side="left", padx=6)
+        ttk.Button(options, text="清空", command=self.clear).pack(side="right")
+        ttk.Button(options, text="保存日志", command=self.save_log).pack(side="right", padx=6)
+
+        send = ttk.Frame(self.window, padding=(8, 4))
+        send.pack(fill="x")
+        ttk.Label(send, text="Input String").pack(side="left")
+        self.input_text = tk.StringVar()
+        entry = ttk.Entry(send, textvariable=self.input_text)
+        entry.pack(side="left", fill="x", expand=True, padx=6)
+        entry.bind("<Return>", lambda _event: self.send())
+        ttk.Button(send, text="Send Command", command=self.send).pack(side="right")
+
+    def feed(self, stamp: datetime, data: bytes) -> None:
+        if not self.window.winfo_exists():
+            return
+        self.rx_chunks += 1
+        self.rx_bytes += len(data)
+        rendered = format_received(data, self.hex_display.get())
+        prefix = f"[{stamp:%Y-%m-%d_%H:%M:%S}:{stamp.microsecond // 1000:03d}]" if self.show_time.get() else ""
+        if self.hex_display.get():
+            rendered = prefix + rendered + "\n"
+        else:
+            rendered = "".join(prefix + part for part in rendered.splitlines(keepends=True))
+            if rendered and not rendered.endswith(("\n", "\r")):
+                rendered += "\n"
+        self.log_lines.append(rendered)
+        self.console.configure(state="normal")
+        self.console.insert("end", rendered)
+        self.console.see("end")
+        self.console.configure(state="disabled")
+        self.status.set(f"{self.port_callback() or 'COM?'} | blocks={self.rx_chunks} bytes={self.rx_bytes}")
+
+    def send(self) -> None:
+        from tkinter import messagebox
+        try:
+            payload = encode_outbound(self.input_text.get(), self.hex_input.get(), self.send_enter.get())
+            count = self.send_callback(payload)
+            self.status.set(f"已发送 {count} bytes 到 {self.port_callback() or '主分析串口'}")
+        except Exception as exc:
+            messagebox.showerror("发送失败", str(exc))
+
+    def clear(self) -> None:
+        self.log_lines.clear()
+        self.rx_bytes = self.rx_chunks = 0
+        self.console.configure(state="normal")
+        self.console.delete("1.0", "end")
+        self.console.configure(state="disabled")
+        self.status.set("显示和镜像日志缓存已清空")
+
+    def save_log(self) -> None:
+        from tkinter import filedialog, messagebox
+        path = filedialog.asksaveasfilename(
+            title="保存分析端镜像日志", defaultextension=".txt",
+            filetypes=(("Text log", "*.txt"), ("All", "*.*")),
+        )
+        if not path:
+            return
+        Path(path).write_text("".join(self.log_lines), encoding="utf-8")
+        messagebox.showinfo("保存完成", path)
+

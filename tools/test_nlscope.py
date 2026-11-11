@@ -37,6 +37,23 @@ class ParserTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             SerialSettings("", 115200).validate()
 
+    def test_main_serial_send_reuses_analysis_handle(self):
+        class Handle:
+            is_open = True
+            def __init__(self):
+                self.payload = b""
+            def write(self, payload):
+                self.payload = payload
+                return len(payload)
+        app = ScopeApp.__new__(ScopeApp)
+        app.main_serial_lock = threading.Lock()
+        app.main_serial_handle = Handle()
+        self.assertEqual(app.send_main_serial(b"hello"), 5)
+        self.assertEqual(app.main_serial_handle.payload, b"hello")
+        app.main_serial_handle = None
+        with self.assertRaises(RuntimeError):
+            app.send_main_serial(b"x")
+
     def test_monitor_adv_parse_and_grouped_metrics(self):
         lines = [
             "[2026-11-11_18:00:00:000][linkscope] role=monitor\n",

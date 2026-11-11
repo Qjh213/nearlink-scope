@@ -103,6 +103,9 @@ class ScopeApp:
         self.last_draw_n = -1
         self.last_draw_monitor_n = -1
         self.aux_terminal = None
+        self.analysis_console = None
+        self.main_serial_handle = None
+        self.main_serial_lock = threading.Lock()
 
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
@@ -118,6 +121,7 @@ class ScopeApp:
         ttk.Button(controls, text="清空", command=self.clear).pack(side="left", padx=6)
         ttk.Button(controls, text="导出", command=self.export).pack(side="left")
         ttk.Button(controls, text="辅助串口", command=self.open_aux_terminal).pack(side="left", padx=6)
+        ttk.Button(controls, text="分析终端", command=self.open_analysis_console).pack(side="left")
         ttk.Button(controls, text="双串口开始", command=self.start_dual).pack(side="left")
         ttk.Button(controls, text="双串口停止", command=self.stop_dual).pack(side="left", padx=6)
         ttk.Button(controls, text="联合导出", command=self.export_dual).pack(side="left")
@@ -184,6 +188,25 @@ class ScopeApp:
             reserved_ports=lambda: ({self.active_port} if self.active_port and not self.stop_event.is_set() else set()),
         )
         return self.aux_terminal
+
+    def open_analysis_console(self):
+        from serial_terminal import AnalysisSerialConsoleWindow
+        if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
+            self.analysis_console.window.lift()
+            self.analysis_console.window.focus_force()
+            return self.analysis_console
+        self.analysis_console = AnalysisSerialConsoleWindow(
+            self.root, self.send_main_serial,
+            port_callback=lambda: self.active_port if self.main_serial_handle is not None else "",
+        )
+        return self.analysis_console
+
+    def send_main_serial(self, payload: bytes) -> int:
+        with self.main_serial_lock:
+            handle = self.main_serial_handle
+            if handle is None or not getattr(handle, "is_open", False):
+                raise RuntimeError("主分析串口未打开")
+            return int(handle.write(payload))
 
     def start_dual(self) -> None:
         """Open responder terminal first, then start the gated analysis serial."""
@@ -459,13 +482,18 @@ class ScopeApp:
             if handle is None:
                 raise last_error or RuntimeError("无法打开串口")
             with handle:
+                with self.main_serial_lock:
+                    self.main_serial_handle = handle
                 while not stop_event.is_set():
                     raw = handle.readline()
                     if raw:
-                        self.events.put((source_id, raw.decode("utf-8", errors="replace")))
+                        self.events.put((source_id, ("serial_bytes", datetime.now(), raw)))
         except Exception as exc:  # 串口异常必须回到 UI 线程显示
             self.events.put((source_id, exc))
         finally:
+            with self.main_serial_lock:
+                if self.main_serial_handle is handle:
+                    self.main_serial_handle = None
             self.events.put((source_id, None))
 
     def poll(self) -> None:
@@ -495,7 +523,14 @@ class ScopeApp:
                 self.parser.signature = self.session.signature
                 self.last_draw_n = -1
             else:
-                event = self.parser.feed(item, received_at=datetime.now())
+                received_at = datetime.now()
+                line = item
+                if isinstance(item, tuple) and item and item[0] == "serial_bytes":
+                    received_at, raw = item[1], item[2]
+                    if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
+                        self.analysis_console.feed(received_at, raw)
+                    line = raw.decode("utf-8", errors="replace")
+                event = self.parser.feed(line, received_at=received_at)
                 self._apply_live_gate(event)
                 if ((event.sample or event.adv) and self.capture_started_monotonic is None and self.strict_live_gate
                         and not self.paused and not self.stop_event.is_set()):

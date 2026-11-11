@@ -105,6 +105,7 @@ class ScopeApp:
         self.aux_terminals = []
         self.serial_workbench = None
         self.serial_workbench_tree = None
+        self.close_aux_button = None
         self.serial_workbench_polling = False
         self.analysis_console = None
         self.main_serial_handle = None
@@ -202,6 +203,9 @@ class ScopeApp:
         )
         holder["terminal"] = terminal
         self.aux_terminals.append(terminal)
+        terminal.window.bind(
+            "<FocusIn>", lambda _event, selected=terminal: self._select_aux_terminal(selected), add="+"
+        )
         self._refresh_workbench()
         return terminal
 
@@ -240,11 +244,13 @@ class ScopeApp:
             tree.heading(key, text=title)
             tree.column(key, width=width, anchor="center")
         tree.pack(fill="both", expand=True, padx=10, pady=8)
-        tree.bind("<Double-1>", lambda _event: self._show_selected_aux())
+        tree.bind("<<TreeviewSelect>>", lambda _event: self._update_aux_actions())
         footer = self.ttk.Frame(window, padding=(10, 0, 10, 10))
         footer.pack(fill="x")
-        self.ttk.Button(footer, text="打开选中终端", command=self._show_selected_aux).pack(side="left")
-        self.ttk.Button(footer, text="关闭选中终端", command=self._close_selected_aux).pack(side="left", padx=6)
+        self.close_aux_button = self.ttk.Button(
+            footer, text="关闭选中终端", command=self._close_selected_aux, state="disabled"
+        )
+        self.close_aux_button.pack(side="left")
         self._refresh_workbench()
         self.serial_workbench_polling = True
         window.after(500, self._poll_workbench)
@@ -254,14 +260,19 @@ class ScopeApp:
         tree = self.serial_workbench_tree
         if tree is None or not tree.winfo_exists():
             return
+        selection = set(tree.selection())
         for item in tree.get_children():
             tree.delete(item)
-        for index, terminal in enumerate(self._live_aux_terminals()):
+        for terminal in self._live_aux_terminals():
+            item_id = str(id(terminal))
             selected = terminal.active_port or terminal.port_map.get(terminal.port.get(), "未选择")
-            tree.insert("", "end", iid=str(index), values=(
+            tree.insert("", "end", iid=item_id, values=(
                 terminal.terminal_name, selected, "已打开" if terminal.is_open else "未打开",
                 terminal.rx_chunks, terminal.rx_bytes,
             ))
+            if item_id in selection:
+                tree.selection_add(item_id)
+        self._update_aux_actions()
 
     def _poll_workbench(self) -> None:
         if self.serial_workbench is None or not self.serial_workbench.winfo_exists():
@@ -275,25 +286,34 @@ class ScopeApp:
         if tree is None:
             return None
         selection = tree.selection()
-        terminals = self._live_aux_terminals()
         if not selection:
-            return terminals[0] if terminals else None
-        index = int(selection[0])
-        return terminals[index] if index < len(terminals) else None
+            return None
+        selected_id = selection[0]
+        return next(
+            (terminal for terminal in self._live_aux_terminals() if str(id(terminal)) == selected_id), None
+        )
 
-    def _show_selected_aux(self) -> None:
-        terminal = self._selected_aux()
-        if terminal is None:
-            terminal = self.open_aux_terminal()
-        terminal.window.deiconify()
-        terminal.window.lift()
-        terminal.window.focus_force()
+    def _select_aux_terminal(self, terminal) -> None:
+        tree = self.serial_workbench_tree
+        if tree is None or not tree.winfo_exists() or not terminal.window.winfo_exists():
+            return
+        item_id = str(id(terminal))
+        if tree.exists(item_id):
+            tree.selection_set(item_id)
+            tree.focus(item_id)
+            tree.see(item_id)
+        self._update_aux_actions()
+
+    def _update_aux_actions(self) -> None:
+        if self.close_aux_button is not None and self.close_aux_button.winfo_exists():
+            self.close_aux_button.configure(state="normal" if self._selected_aux() is not None else "disabled")
 
     def _close_selected_aux(self) -> None:
         terminal = self._selected_aux()
-        if terminal is not None:
-            terminal.close()
-            self._refresh_workbench()
+        if terminal is None:
+            return
+        terminal.close()
+        self._refresh_workbench()
 
     def open_analysis_console(self):
         from serial_terminal import AnalysisSerialConsoleWindow

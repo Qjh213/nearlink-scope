@@ -32,6 +32,18 @@ ADV,seq,t_us,event,addr_id,rssi_dbm,data_status,data_len,payload_hex
 - 导出原始日志、逐报告CSV、会话JSON和Markdown摘要；
 - 任意设备没有广播序号时，不计算或宣称丢包率。
 
+### 3.1 已完成的核心解析层
+
+`nlscope_core.py` 已可严格解析 `ADV` 与 `# MON` 行，对地址ID、RSSI、状态、长度和十六进制
+Payload做完整性校验，畸形串口行不会进入统计。记录按 `addr_id` 聚合，RSSI排除无效值127后给出
+min/p10/p50/p90/max；报告间隔只在同一设备、同一event类型内统计，并正确处理32位微秒时钟回绕。
+
+历史QCOM日志可能同时包含复位前的旧会话尾部和复位后的新会话。解析层会识别seq回到1的边界，跨复位
+不计算报告间隔，避免生成数千秒的伪最大值；同时保留reset、gap、duplicate和out-of-order诊断计数。
+这些计数只描述UART记录序列完整性，不等价于空口丢包率。
+
+当前单元测试11项全部通过。下一步把该核心层接入GUI设备列表、图表和M4四类导出。
+
 ## 4. 实验顺序
 
 1. COM4运行已知SLE advertiser，COM3运行monitor，验证字段和持续seek；

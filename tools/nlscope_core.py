@@ -29,6 +29,21 @@ class Sample:
     wall_time: Optional[datetime] = None
 
 
+@dataclass(frozen=True)
+class AdvRecord:
+    """SLE seek callback copied by the monitor firmware."""
+
+    seq: int
+    t_us: int
+    event: int
+    addr_id: str
+    rssi_dbm: int
+    data_status: int
+    data_len: int
+    payload_hex: str
+    wall_time: Optional[datetime] = None
+
+
 @dataclass
 class PlatformSignature:
     role: str = "unknown"
@@ -58,7 +73,9 @@ class PlatformSignature:
 @dataclass
 class ParsedEvent:
     sample: Optional[Sample] = None
+    adv: Optional[AdvRecord] = None
     counters: Optional[dict[str, int]] = None
+    monitor_counters: Optional[dict[str, int]] = None
     signature_changed: bool = False
     raw_line: str = ""
 
@@ -109,6 +126,30 @@ class LineParser:
                     pass
             return event
 
+        if body.startswith("ADV,"):
+            parts = body.split(",")
+            if len(parts) == 9:
+                try:
+                    seq, t_us, adv_event = (int(parts[index], 0) for index in (1, 2, 3))
+                    addr_id = parts[4].lower()
+                    rssi, data_status, data_len = (int(parts[index], 0) for index in (5, 6, 7))
+                    payload = parts[8].lower()
+                    # Keep malformed UART lines out of statistics rather than partially accepting them.
+                    if (re.fullmatch(r"[0-9a-f]{8}", addr_id)
+                            and -128 <= rssi <= 127
+                            and 0 <= data_status <= 255
+                            and 0 <= data_len <= 255
+                            and re.fullmatch(r"[0-9a-f]*", payload)
+                            and len(payload) == data_len * 2):
+                        event.adv = AdvRecord(seq, t_us, adv_event, addr_id, rssi,
+                                              data_status, data_len, payload, stamp)
+                except ValueError:
+                    pass
+            return event
+
+        if body.startswith("# MON"):
+            event.monitor_counters = self._ints(body)
+
         if "# SUM" in body:
             event.counters = self._ints(body)
 
@@ -154,7 +195,9 @@ def percentile(values: list[int], p: float) -> Optional[int]:
 class Session:
     signature: PlatformSignature = field(default_factory=PlatformSignature)
     samples: list[Sample] = field(default_factory=list)
+    adv_records: list[AdvRecord] = field(default_factory=list)
     counters: dict[str, int] = field(default_factory=dict)
+    monitor_counters: dict[str, int] = field(default_factory=dict)
     raw_lines: list[str] = field(default_factory=list)
 
     def add(self, event: ParsedEvent, signature: PlatformSignature) -> None:
@@ -163,8 +206,68 @@ class Session:
             self.raw_lines.append(event.raw_line)
         if event.sample:
             self.samples.append(event.sample)
+        if event.adv:
+            self.adv_records.append(event.adv)
         if event.counters:
             self.counters = event.counters
+        if event.monitor_counters:
+            self.monitor_counters = event.monitor_counters
+
+    def monitor_metrics(self) -> dict[str, object]:
+        """Aggregate passive reports without merging different SLE event types."""
+        devices: dict[str, dict[str, object]] = {}
+        for row in self.adv_records:
+            item = devices.setdefault(row.addr_id, {"records": [], "events": {}})
+            item["records"].append(row)  # type: ignore[union-attr]
+            event_rows = item["events"].setdefault(row.event, [])  # type: ignore[union-attr]
+            event_rows.append(row)
+
+        result_devices: dict[str, object] = {}
+        for addr_id, item in devices.items():
+            rows: list[AdvRecord] = item["records"]  # type: ignore[assignment]
+            valid_rssi = [row.rssi_dbm for row in rows if row.rssi_dbm != 127]
+            event_metrics: dict[str, object] = {}
+            for event, event_rows in item["events"].items():  # type: ignore[union-attr]
+                # The firmware clock is uint32 microseconds; subtraction must tolerate wrap.
+                intervals = [((event_rows[i].t_us - event_rows[i - 1].t_us) & 0xFFFFFFFF)
+                             for i in range(1, len(event_rows))
+                             if event_rows[i].seq > event_rows[i - 1].seq]
+                event_metrics[str(event)] = {
+                    "n": len(event_rows),
+                    "interval_p50_us": percentile(intervals, .5),
+                    "interval_p90_us": percentile(intervals, .9),
+                    "interval_p99_us": percentile(intervals, .99),
+                    "interval_max_us": max(intervals) if intervals else None,
+                }
+            result_devices[addr_id] = {
+                "n": len(rows),
+                "rssi_min_dbm": min(valid_rssi) if valid_rssi else None,
+                "rssi_p10_dbm": percentile(valid_rssi, .1),
+                "rssi_p50_dbm": percentile(valid_rssi, .5),
+                "rssi_p90_dbm": percentile(valid_rssi, .9),
+                "rssi_max_dbm": max(valid_rssi) if valid_rssi else None,
+                "invalid_rssi": len(rows) - len(valid_rssi),
+                "events": event_metrics,
+            }
+
+        seqs = [row.seq for row in self.adv_records]
+        gaps = duplicates = out_of_order = resets = 0
+        for previous, current in zip(seqs, seqs[1:]):
+            if current == previous:
+                duplicates += 1
+            elif current == 1 and previous != 0:
+                resets += 1
+            elif current > previous + 1:
+                gaps += current - previous - 1
+            elif current < previous:
+                out_of_order += 1
+        return {
+            "n": len(self.adv_records),
+            "devices": result_devices,
+            "sequence": {"gaps": gaps, "duplicates": duplicates,
+                         "out_of_order": out_of_order, "resets": resets},
+            "board_latest_mon": self.monitor_counters,
+        }
 
     def metrics(self) -> dict[str, float | int | None]:
         rtt = [row.rtt_us for row in self.samples]

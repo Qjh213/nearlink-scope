@@ -23,6 +23,47 @@ LINES = [
 
 
 class ParserTests(unittest.TestCase):
+    def test_monitor_adv_parse_and_grouped_metrics(self):
+        lines = [
+            "[2026-11-11_18:00:00:000][linkscope] role=monitor\n",
+            "[2026-11-11_18:00:00:001][linkscope] link=sle-passive-seek seek_intv=100 seek_win=100 filter_dup=0\n",
+            "[2026-11-11_18:00:00:010]ADV,1,4294967290,3,867EC3DF,-50,0,2,0102\n",
+            "[2026-11-11_18:00:00:011]ADV,2,7,11,867ec3df,127,0,1,aa\n",
+            "[2026-11-11_18:00:00:012]ADV,3,14,3,867ec3df,-40,0,2,0304\n",
+            "[2026-11-11_18:00:00:013]# MON n=3 drop=0 invalid_rssi=1\n",
+        ]
+        session = feed_lines(lines)
+        self.assertEqual(session.signature.role, "monitor")
+        self.assertEqual(len(session.adv_records), 3)
+        metrics = session.monitor_metrics()
+        self.assertEqual(metrics["n"], 3)
+        device = metrics["devices"]["867ec3df"]
+        self.assertEqual(device["rssi_p50_dbm"], -50)
+        self.assertEqual(device["invalid_rssi"], 1)
+        # Event 3 crosses a uint32 timer wrap: (14 - 0xfffffffA) mod 2^32 = 20 us.
+        self.assertEqual(device["events"]["3"]["interval_p50_us"], 20)
+        self.assertEqual(device["events"]["11"]["interval_p50_us"], None)
+        self.assertEqual(metrics["board_latest_mon"]["drop"], 0)
+
+    def test_malformed_adv_is_rejected(self):
+        session = feed_lines([
+            "ADV,1,10,3,nothex,-40,0,1,aa\n",
+            "ADV,2,20,3,12345678,-40,0,2,aa\n",
+            "ADV,3,30,3,12345678,-40,0,1,zz\n",
+        ])
+        self.assertEqual(session.adv_records, [])
+
+    def test_monitor_reset_is_not_an_interval(self):
+        session = feed_lines([
+            "ADV,99,100000,3,12345678,-40,0,1,aa\n",
+            "ADV,1,100,3,12345678,-41,0,1,aa\n",
+            "ADV,2,250,3,12345678,-42,0,1,aa\n",
+        ])
+        metrics = session.monitor_metrics()
+        self.assertEqual(metrics["sequence"]["resets"], 1)
+        event = metrics["devices"]["12345678"]["events"]["3"]
+        self.assertEqual(event["interval_max_us"], 150)
+
     def test_port_discovery_shape(self):
         for device, display in discover_serial_ports():
             self.assertTrue(device)

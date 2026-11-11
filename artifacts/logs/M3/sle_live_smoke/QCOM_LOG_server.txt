@@ -1,0 +1,312 @@
+[2026-11-11_17:57:58:781]boot.
+[2026-11-11_17:57:58:831]Flash Init Fail! ret = 0x80001341
+[2026-11-11_17:57:58:831]verify_public_rootkey secure verify disable!
+[2026-11-11_17:57:58:831]verify_params_key_area secure verify disable!
+[2026-11-11_17:57:58:831]verify_params_area_info secure verify disable!
+[2026-11-11_17:57:58:831]verify_image_key_area secure verify disable!
+[2026-11-11_17:57:58:831]verify_image_code_info secure verify disable!
+[2026-11-11_17:57:58:919]SSB Uart Init Succ!
+[2026-11-11_17:57:58:919]SSB Flash Init Succ!
+[2026-11-11_17:57:58:919]verify_image_key_area secure verify disable!
+[2026-11-11_17:57:58:919]verify_image_code_info secure verify disable!
+[2026-11-11_17:57:58:934]Flashboot Uart Init Succ!
+[2026-11-11_17:57:58:934]Flashboot Malloc Init Succ!
+[2026-11-11_17:57:58:934]Flash Init Succ!
+[2026-11-11_17:57:58:934]No need to fix SR!
+[2026-11-11_17:57:58:934]io level work in hw mode, level[chip]:0x33
+[2026-11-11_17:57:58:966]flashboot version : 1.10.102
+[2026-11-11_17:57:58:966][UPG] upgrade init OK!
+[2026-11-11_17:57:58:966]No need to upgrade...
+[2026-11-11_17:57:58:966]flash_encrypt disable.
+[2026-11-11_17:57:58:966]verify_image_key_area secure verify disable!
+[2026-11-11_17:57:58:966]verify_image_code_info secure verify disable!
+[2026-11-11_17:57:59:373]APP|dbg uart init ok.
+[2026-11-11_17:57:59:435][UPG] upgrade init OK!
+[2026-11-11_17:57:59:435]APP|init_sle_mac failed!!! 
+[2026-11-11_17:57:59:435]APP|init_dev_addr, mac_addr:0xf2,0x 0,0x73,0x 8,0x**,0x**,
+[2026-11-11_17:57:59:435]xo_trim_temp_comp val:0 0
+[2026-11-11_17:57:59:435]los_at_plt_cmd_register EXCUTE
+[2026-11-11_17:57:59:435]APP|thread[11] func null
+[2026-11-11_17:57:59:435]cpu 0 entering scheduler
+[2026-11-11_17:57:59:514]APP|btc open
+[2026-11-11_17:57:59:514][RADAR_LOG] alg ctrl read from nv [1][2][0][0][1][1][20]
+[2026-11-11_17:57:59:514]device_main_init: 0!
+[2026-11-11_17:57:59:514]===hal_initialize_phy===226===
+[2026-11-11_17:57:59:514]device_module_init:: succ!
+[2026-11-11_17:57:59:514]cali_set_cali_mask:old[0x0] -> new[0x1fa2]
+
+[2026-11-11_17:57:59:514]fe_rf_initialize
+[2026-11-11_17:57:59:514]cali_offline_cali_entry enter
+[2026-11-11_17:57:59:544]cali_set_cali_done_flag:old[0x0] -> new[0x1]
+
+[2026-11-11_17:57:59:544]rf cali OK. time cost:22, ret:0
+
+[2026-11-11_17:57:59:544][linkscope]  ===== LinkScope W1 =====
+[2026-11-11_17:57:59:544][linkscope]  role=responder (B)
+[2026-11-11_17:57:59:544][linkscope]  [SELFTEST] pass=32 fail=0 -> PASS
+[2026-11-11_17:57:59:544][linkscope]  [B] responder booting, wait SLE stack 2000ms
+[2026-11-11_17:58:01:558][ACore] sle enable cbk in, result:0
+[2026-11-11_17:58:01:558]sle enable
+[2026-11-11_17:58:01:558][sle uart server] sle uart add service in
+[2026-11-11_17:58:01:558][sle uart server] sle uart add service, server_id:1, service_handle:1, property_handle:2
+[2026-11-11_17:58:01:575][sle uart server] start service cbk callback server_id:1, handle:1, status:0
+[2026-11-11_17:58:01:575][sle uart server] sle uart add service out
+[2026-11-11_17:58:01:594][sle uart server] sle_uart_local addr: 0xca 0xca 0xca 0xca 0xca 0xca 
+[2026-11-11_17:58:01:594][ACore] sle set announce param, handle:1, mode:3, min_interval:c8, max_interval:c8, tx_power: 18
+[2026-11-11_17:58:01:594][ACore] sle set announce param, own addr:0xca:**:**:**:ca:ca
+[2026-11-11_17:58:01:594][ACore] sle set announce param, peer addr:0x00:**:**:**:00:00
+[2026-11-11_17:58:01:605][sle uart server] data.announce_data_len = 6
+[2026-11-11_17:58:01:625][sle uart server] data.announce_data: 0x01 0x02 0x01 0x02 0x02 0x00 
+[2026-11-11_17:58:01:625][sle uart server] local_name_len = 9
+[2026-11-11_17:58:01:625][sle uart server] local_name: 0x6c 0x69 0x6e 0x6b 0x73 0x63 0x6f 0x70 0x65 
+[2026-11-11_17:58:01:625][sle uart server] data.seek_rsp_data_len = 14
+[2026-11-11_17:58:01:625][sle uart server] data.seek_rsp_data: 0x0c 0x02 0x0a 0x0a 0x0b 0x6c 0x69 0x6e 0x6b 0x73 0x63 0x6f 0x70 0x65 
+[2026-11-11_17:58:01:647][sle uart server] set announce data success.
+[2026-11-11_17:58:01:647][ACore] sle start announce in, adv_id:1
+[2026-11-11_17:58:01:647][ACore] sle adv cbk in, event:0 status:0
+[2026-11-11_17:58:01:647][ACore] sle adv cbk in, event:1 status:0
+[2026-11-11_17:58:01:683][ACore] sle adv cbk in, event:2 status:0
+[2026-11-11_17:58:01:683][ACore] sle adv cbk in, event:3 status:0
+[2026-11-11_17:58:01:683][sle uart server] sle announce enable callback id:01, state:0
+[2026-11-11_17:58:01:683][sle uart server] init ok
+[2026-11-11_17:58:01:683][linkscope]  [B] ready, waiting for REQ (name=linkscope)
+[2026-11-11_17:58:02:167][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_17:58:02:671][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_17:58:03:173][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_17:58:03:426]xo update temp:3,diff:0,xo:0x3083c
+[2026-11-11_17:58:03:677][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_17:58:04:163][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_17:58:04:677][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_17:58:10:535]APP|[SYS INFO] mem: used:99568, free:266340; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:58:20:538]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:58:30:531]APP|[SYS INFO] mem: used:99384, free:266524; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:58:31:678][Connected]
+[2026-11-11_17:58:31:678]addr:ee:**:**:**:8d:5c, conn_id:00
+[2026-11-11_17:58:31:678][ACore] sle adv cbk in, event:7 status:0
+[2026-11-11_17:58:31:698][sle uart server] connect state changed callback conn_id:0x00, conn_state:0x1, pair_state:0x1,         disc_reason:0x0
+[2026-11-11_17:58:31:698][sle uart server] connect state changed callback addr:ee:**:**:**:8d:a13f74
+[2026-11-11_17:58:31:698][sle uart server] sle announce terminal callback id:01
+[2026-11-11_17:58:31:959][sle uart server] pair complete conn_id:00, status:0
+[2026-11-11_17:58:31:959][sle uart server] pair complete addr:ee:**:**:**:8d:a13f74
+[2026-11-11_17:58:31:990][sle uart server] ssaps ssaps_mtu_changed_cbk callback server_id:0, conn_id:0, mtu_size:208, status:0
+[2026-11-11_17:58:32:053]update ssap send report handle: pre handle:ffff, current:0 
+[2026-11-11_17:58:32:165][linkscope]  [B] hb req=2 bad=0 rsp=2 lasterr=0x0
+[2026-11-11_17:58:32:661][linkscope]  [B] hb req=9 bad=0 rsp=9 lasterr=0x0
+[2026-11-11_17:58:32:739][Connected param update] addr:ee:**:**:**:8d:5c, handle:00
+[2026-11-11_17:58:33:173][linkscope]  [B] hb req=29 bad=0 rsp=29 lasterr=0x0
+[2026-11-11_17:58:33:670][linkscope]  [B] hb req=49 bad=0 rsp=49 lasterr=0x0
+[2026-11-11_17:58:34:166][linkscope]  [B] hb req=69 bad=0 rsp=69 lasterr=0x0
+[2026-11-11_17:58:34:677][linkscope]  [B] hb req=89 bad=0 rsp=89 lasterr=0x0
+[2026-11-11_17:58:35:175][linkscope]  [B] hb req=109 bad=0 rsp=109 lasterr=0x0
+[2026-11-11_17:58:35:672][linkscope]  [B] hb req=129 bad=0 rsp=129 lasterr=0x0
+[2026-11-11_17:58:36:171][linkscope]  [B] hb req=149 bad=0 rsp=149 lasterr=0x0
+[2026-11-11_17:58:36:669][linkscope]  [B] hb req=168 bad=0 rsp=168 lasterr=0x0
+[2026-11-11_17:58:37:167][linkscope]  [B] hb req=189 bad=0 rsp=189 lasterr=0x0
+[2026-11-11_17:58:37:677][linkscope]  [B] hb req=209 bad=0 rsp=209 lasterr=0x0
+[2026-11-11_17:58:38:175][linkscope]  [B] hb req=229 bad=0 rsp=229 lasterr=0x0
+[2026-11-11_17:58:38:672][linkscope]  [B] hb req=249 bad=0 rsp=249 lasterr=0x0
+[2026-11-11_17:58:39:173][linkscope]  [B] hb req=269 bad=0 rsp=269 lasterr=0x0
+[2026-11-11_17:58:39:671][linkscope]  [B] hb req=289 bad=0 rsp=289 lasterr=0x0
+[2026-11-11_17:58:40:180][linkscope]  [B] hb req=309 bad=0 rsp=309 lasterr=0x0
+[2026-11-11_17:58:40:537]APP|[SYS INFO] mem: used:101176, free:264732; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:58:40:662][linkscope]  [B] hb req=329 bad=0 rsp=329 lasterr=0x0
+[2026-11-11_17:58:41:177][linkscope]  [B] hb req=349 bad=0 rsp=349 lasterr=0x0
+[2026-11-11_17:58:41:662][linkscope]  [B] hb req=369 bad=0 rsp=369 lasterr=0x0
+[2026-11-11_17:58:42:172][linkscope]  [B] hb req=389 bad=0 rsp=389 lasterr=0x0
+[2026-11-11_17:58:42:673][linkscope]  [B] hb req=409 bad=0 rsp=409 lasterr=0x0
+[2026-11-11_17:58:43:162][linkscope]  [B] hb req=429 bad=0 rsp=429 lasterr=0x0
+[2026-11-11_17:58:43:675][linkscope]  [B] hb req=449 bad=0 rsp=449 lasterr=0x0
+[2026-11-11_17:58:44:162][linkscope]  [B] hb req=469 bad=0 rsp=469 lasterr=0x0
+[2026-11-11_17:58:44:681][linkscope]  [B] hb req=489 bad=0 rsp=489 lasterr=0x0
+[2026-11-11_17:58:45:181][linkscope]  [B] hb req=509 bad=0 rsp=509 lasterr=0x0
+[2026-11-11_17:58:45:679][linkscope]  [B] hb req=529 bad=0 rsp=529 lasterr=0x0
+[2026-11-11_17:58:46:176][linkscope]  [B] hb req=549 bad=0 rsp=549 lasterr=0x0
+[2026-11-11_17:58:46:675][linkscope]  [B] hb req=569 bad=0 rsp=569 lasterr=0x0
+[2026-11-11_17:58:47:171][linkscope]  [B] hb req=589 bad=0 rsp=589 lasterr=0x0
+[2026-11-11_17:58:47:672][linkscope]  [B] hb req=609 bad=0 rsp=609 lasterr=0x0
+[2026-11-11_17:58:48:171][linkscope]  [B] hb req=629 bad=0 rsp=629 lasterr=0x0
+[2026-11-11_17:58:48:665][linkscope]  [B] hb req=649 bad=0 rsp=649 lasterr=0x0
+[2026-11-11_17:58:49:163][linkscope]  [B] hb req=669 bad=0 rsp=669 lasterr=0x0
+[2026-11-11_17:58:49:672][linkscope]  [B] hb req=689 bad=0 rsp=689 lasterr=0x0
+[2026-11-11_17:58:50:175][linkscope]  [B] hb req=709 bad=0 rsp=709 lasterr=0x0
+[2026-11-11_17:58:50:548]APP|[SYS INFO] mem: used:101016, free:264892; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:58:50:673][linkscope]  [B] hb req=729 bad=0 rsp=729 lasterr=0x0
+[2026-11-11_17:58:51:171][linkscope]  [B] hb req=749 bad=0 rsp=749 lasterr=0x0
+[2026-11-11_17:58:51:669][linkscope]  [B] hb req=769 bad=0 rsp=769 lasterr=0x0
+[2026-11-11_17:58:52:170][linkscope]  [B] hb req=789 bad=0 rsp=789 lasterr=0x0
+[2026-11-11_17:58:52:668][linkscope]  [B] hb req=809 bad=0 rsp=809 lasterr=0x0
+[2026-11-11_17:58:53:164][linkscope]  [B] hb req=829 bad=0 rsp=829 lasterr=0x0
+[2026-11-11_17:58:53:675][linkscope]  [B] hb req=849 bad=0 rsp=849 lasterr=0x0
+[2026-11-11_17:58:54:177][linkscope]  [B] hb req=869 bad=0 rsp=869 lasterr=0x0
+[2026-11-11_17:58:54:664][linkscope]  [B] hb req=889 bad=0 rsp=889 lasterr=0x0
+[2026-11-11_17:58:55:168][linkscope]  [B] hb req=909 bad=0 rsp=909 lasterr=0x0
+[2026-11-11_17:58:55:664][linkscope]  [B] hb req=929 bad=0 rsp=929 lasterr=0x0
+[2026-11-11_17:58:56:168][linkscope]  [B] hb req=949 bad=0 rsp=949 lasterr=0x0
+[2026-11-11_17:58:56:670][linkscope]  [B] hb req=969 bad=0 rsp=969 lasterr=0x0
+[2026-11-11_17:58:57:173][linkscope]  [B] hb req=989 bad=0 rsp=989 lasterr=0x0
+[2026-11-11_17:58:57:678][linkscope]  [B] hb req=1009 bad=0 rsp=1009 lasterr=0x0
+[2026-11-11_17:58:58:182][linkscope]  [B] hb req=1029 bad=0 rsp=1029 lasterr=0x0
+[2026-11-11_17:58:58:668][linkscope]  [B] hb req=1049 bad=0 rsp=1049 lasterr=0x0
+[2026-11-11_17:58:59:170][linkscope]  [B] hb req=1069 bad=0 rsp=1069 lasterr=0x0
+[2026-11-11_17:58:59:668][linkscope]  [B] hb req=1089 bad=0 rsp=1089 lasterr=0x0
+[2026-11-11_17:59:00:170][linkscope]  [B] hb req=1109 bad=0 rsp=1109 lasterr=0x0
+[2026-11-11_17:59:00:541]APP|[SYS INFO] mem: used:101196, free:264712; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:59:00:667][linkscope]  [B] hb req=1129 bad=0 rsp=1129 lasterr=0x0
+[2026-11-11_17:59:01:178][linkscope]  [B] hb req=1149 bad=0 rsp=1149 lasterr=0x0
+[2026-11-11_17:59:01:663][linkscope]  [B] hb req=1169 bad=0 rsp=1169 lasterr=0x0
+[2026-11-11_17:59:02:178][linkscope]  [B] hb req=1189 bad=0 rsp=1189 lasterr=0x0
+[2026-11-11_17:59:02:675][linkscope]  [B] hb req=1209 bad=0 rsp=1209 lasterr=0x0
+[2026-11-11_17:59:03:172][linkscope]  [B] hb req=1229 bad=0 rsp=1229 lasterr=0x0
+[2026-11-11_17:59:03:671][linkscope]  [B] hb req=1249 bad=0 rsp=1249 lasterr=0x0
+[2026-11-11_17:59:04:171][linkscope]  [B] hb req=1269 bad=0 rsp=1269 lasterr=0x0
+[2026-11-11_17:59:04:668][linkscope]  [B] hb req=1289 bad=0 rsp=1289 lasterr=0x0
+[2026-11-11_17:59:05:165][linkscope]  [B] hb req=1309 bad=0 rsp=1309 lasterr=0x0
+[2026-11-11_17:59:05:678][linkscope]  [B] hb req=1329 bad=0 rsp=1329 lasterr=0x0
+[2026-11-11_17:59:06:177][linkscope]  [B] hb req=1349 bad=0 rsp=1349 lasterr=0x0
+[2026-11-11_17:59:06:665][linkscope]  [B] hb req=1369 bad=0 rsp=1369 lasterr=0x0
+[2026-11-11_17:59:07:165][linkscope]  [B] hb req=1389 bad=0 rsp=1389 lasterr=0x0
+[2026-11-11_17:59:07:665][linkscope]  [B] hb req=1409 bad=0 rsp=1409 lasterr=0x0
+[2026-11-11_17:59:08:180][linkscope]  [B] hb req=1429 bad=0 rsp=1429 lasterr=0x0
+[2026-11-11_17:59:08:677][linkscope]  [B] hb req=1449 bad=0 rsp=1449 lasterr=0x0
+[2026-11-11_17:59:09:177][linkscope]  [B] hb req=1469 bad=0 rsp=1469 lasterr=0x0
+[2026-11-11_17:59:09:677][linkscope]  [B] hb req=1489 bad=0 rsp=1489 lasterr=0x0
+[2026-11-11_17:59:10:173][linkscope]  [B] hb req=1509 bad=0 rsp=1509 lasterr=0x0
+[2026-11-11_17:59:10:548]APP|[SYS INFO] mem: used:101024, free:264884; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:59:10:674][linkscope]  [B] hb req=1529 bad=0 rsp=1529 lasterr=0x0
+[2026-11-11_17:59:11:176][linkscope]  [B] hb req=1549 bad=0 rsp=1549 lasterr=0x0
+[2026-11-11_17:59:11:678][linkscope]  [B] hb req=1569 bad=0 rsp=1569 lasterr=0x0
+[2026-11-11_17:59:12:165][linkscope]  [B] hb req=1589 bad=0 rsp=1589 lasterr=0x0
+[2026-11-11_17:59:12:683][linkscope]  [B] hb req=1609 bad=0 rsp=1609 lasterr=0x0
+[2026-11-11_17:59:13:168][linkscope]  [B] hb req=1629 bad=0 rsp=1629 lasterr=0x0
+[2026-11-11_17:59:13:664][linkscope]  [B] hb req=1649 bad=0 rsp=1649 lasterr=0x0
+[2026-11-11_17:59:14:179][linkscope]  [B] hb req=1669 bad=0 rsp=1669 lasterr=0x0
+[2026-11-11_17:59:14:678][linkscope]  [B] hb req=1689 bad=0 rsp=1689 lasterr=0x0
+[2026-11-11_17:59:15:176][linkscope]  [B] hb req=1709 bad=0 rsp=1709 lasterr=0x0
+[2026-11-11_17:59:15:678][linkscope]  [B] hb req=1729 bad=0 rsp=1729 lasterr=0x0
+[2026-11-11_17:59:16:178][linkscope]  [B] hb req=1749 bad=0 rsp=1749 lasterr=0x0
+[2026-11-11_17:59:16:674][linkscope]  [B] hb req=1769 bad=0 rsp=1769 lasterr=0x0
+[2026-11-11_17:59:17:171][linkscope]  [B] hb req=1789 bad=0 rsp=1789 lasterr=0x0
+[2026-11-11_17:59:17:670][linkscope]  [B] hb req=1809 bad=0 rsp=1809 lasterr=0x0
+[2026-11-11_17:59:18:172][linkscope]  [B] hb req=1829 bad=0 rsp=1829 lasterr=0x0
+[2026-11-11_17:59:18:674][linkscope]  [B] hb req=1849 bad=0 rsp=1849 lasterr=0x0
+[2026-11-11_17:59:19:173][linkscope]  [B] hb req=1869 bad=0 rsp=1869 lasterr=0x0
+[2026-11-11_17:59:19:669][linkscope]  [B] hb req=1889 bad=0 rsp=1889 lasterr=0x0
+[2026-11-11_17:59:20:169][linkscope]  [B] hb req=1909 bad=0 rsp=1909 lasterr=0x0
+[2026-11-11_17:59:20:556]APP|[SYS INFO] mem: used:101264, free:264644; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:59:20:666][linkscope]  [B] hb req=1929 bad=0 rsp=1929 lasterr=0x0
+[2026-11-11_17:59:21:183][linkscope]  [B] hb req=1949 bad=0 rsp=1949 lasterr=0x0
+[2026-11-11_17:59:21:680][linkscope]  [B] hb req=1969 bad=0 rsp=1969 lasterr=0x0
+[2026-11-11_17:59:22:165][linkscope]  [B] hb req=1989 bad=0 rsp=1989 lasterr=0x0
+[2026-11-11_17:59:22:678][linkscope]  [B] hb req=2009 bad=0 rsp=2009 lasterr=0x0
+[2026-11-11_17:59:23:180][linkscope]  [B] hb req=2029 bad=0 rsp=2029 lasterr=0x0
+[2026-11-11_17:59:23:681][linkscope]  [B] hb req=2049 bad=0 rsp=2049 lasterr=0x0
+[2026-11-11_17:59:24:170][linkscope]  [B] hb req=2069 bad=0 rsp=2069 lasterr=0x0
+[2026-11-11_17:59:24:677][linkscope]  [B] hb req=2089 bad=0 rsp=2089 lasterr=0x0
+[2026-11-11_17:59:25:177][linkscope]  [B] hb req=2109 bad=0 rsp=2109 lasterr=0x0
+[2026-11-11_17:59:25:676][linkscope]  [B] hb req=2129 bad=0 rsp=2129 lasterr=0x0
+[2026-11-11_17:59:26:174][linkscope]  [B] hb req=2149 bad=0 rsp=2149 lasterr=0x0
+[2026-11-11_17:59:26:675][linkscope]  [B] hb req=2169 bad=0 rsp=2169 lasterr=0x0
+[2026-11-11_17:59:27:173][linkscope]  [B] hb req=2189 bad=0 rsp=2189 lasterr=0x0
+[2026-11-11_17:59:27:673][linkscope]  [B] hb req=2209 bad=0 rsp=2209 lasterr=0x0
+[2026-11-11_17:59:28:174][linkscope]  [B] hb req=2229 bad=0 rsp=2229 lasterr=0x0
+[2026-11-11_17:59:28:672][linkscope]  [B] hb req=2249 bad=0 rsp=2249 lasterr=0x0
+[2026-11-11_17:59:29:172][linkscope]  [B] hb req=2269 bad=0 rsp=2269 lasterr=0x0
+[2026-11-11_17:59:29:671][linkscope]  [B] hb req=2289 bad=0 rsp=2289 lasterr=0x0
+[2026-11-11_17:59:30:172][linkscope]  [B] hb req=2309 bad=0 rsp=2309 lasterr=0x0
+[2026-11-11_17:59:30:549]APP|[SYS INFO] mem: used:101036, free:264872; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:59:30:672][linkscope]  [B] hb req=2329 bad=0 rsp=2329 lasterr=0x0
+[2026-11-11_17:59:31:174][linkscope]  [B] hb req=2349 bad=0 rsp=2349 lasterr=0x0
+[2026-11-11_17:59:31:671][linkscope]  [B] hb req=2369 bad=0 rsp=2369 lasterr=0x0
+[2026-11-11_17:59:32:170][linkscope]  [B] hb req=2389 bad=0 rsp=2389 lasterr=0x0
+[2026-11-11_17:59:32:669][linkscope]  [B] hb req=2409 bad=0 rsp=2409 lasterr=0x0
+[2026-11-11_17:59:33:184][linkscope]  [B] hb req=2429 bad=0 rsp=2429 lasterr=0x0
+[2026-11-11_17:59:33:685][linkscope]  [B] hb req=2449 bad=0 rsp=2449 lasterr=0x0
+[2026-11-11_17:59:34:180][linkscope]  [B] hb req=2469 bad=0 rsp=2469 lasterr=0x0
+[2026-11-11_17:59:34:667][linkscope]  [B] hb req=2489 bad=0 rsp=2489 lasterr=0x0
+[2026-11-11_17:59:35:180][linkscope]  [B] hb req=2509 bad=0 rsp=2509 lasterr=0x0
+[2026-11-11_17:59:35:674][linkscope]  [B] hb req=2529 bad=0 rsp=2529 lasterr=0x0
+[2026-11-11_17:59:36:171][linkscope]  [B] hb req=2549 bad=0 rsp=2549 lasterr=0x0
+[2026-11-11_17:59:36:673][linkscope]  [B] hb req=2569 bad=0 rsp=2569 lasterr=0x0
+[2026-11-11_17:59:37:176][linkscope]  [B] hb req=2589 bad=0 rsp=2589 lasterr=0x0
+[2026-11-11_17:59:37:680][linkscope]  [B] hb req=2609 bad=0 rsp=2609 lasterr=0x0
+[2026-11-11_17:59:38:180][linkscope]  [B] hb req=2629 bad=0 rsp=2629 lasterr=0x0
+[2026-11-11_17:59:38:682][linkscope]  [B] hb req=2649 bad=0 rsp=2649 lasterr=0x0
+[2026-11-11_17:59:39:171][linkscope]  [B] hb req=2669 bad=0 rsp=2669 lasterr=0x0
+[2026-11-11_17:59:39:671][linkscope]  [B] hb req=2689 bad=0 rsp=2689 lasterr=0x0
+[2026-11-11_17:59:40:172][linkscope]  [B] hb req=2709 bad=0 rsp=2709 lasterr=0x0
+[2026-11-11_17:59:40:549]APP|[SYS INFO] mem: used:101280, free:264628; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:59:40:674][linkscope]  [B] hb req=2729 bad=0 rsp=2729 lasterr=0x0
+[2026-11-11_17:59:41:173][linkscope]  [B] hb req=2749 bad=0 rsp=2749 lasterr=0x0
+[2026-11-11_17:59:41:670][linkscope]  [B] hb req=2769 bad=0 rsp=2769 lasterr=0x0
+[2026-11-11_17:59:42:167][linkscope]  [B] hb req=2789 bad=0 rsp=2789 lasterr=0x0
+[2026-11-11_17:59:42:667][linkscope]  [B] hb req=2809 bad=0 rsp=2809 lasterr=0x0
+[2026-11-11_17:59:43:181][linkscope]  [B] hb req=2829 bad=0 rsp=2829 lasterr=0x0
+[2026-11-11_17:59:43:682][linkscope]  [B] hb req=2849 bad=0 rsp=2849 lasterr=0x0
+[2026-11-11_17:59:44:179][linkscope]  [B] hb req=2869 bad=0 rsp=2869 lasterr=0x0
+[2026-11-11_17:59:44:678][linkscope]  [B] hb req=2889 bad=0 rsp=2889 lasterr=0x0
+[2026-11-11_17:59:45:174][linkscope]  [B] hb req=2909 bad=0 rsp=2909 lasterr=0x0
+[2026-11-11_17:59:45:671][linkscope]  [B] hb req=2929 bad=0 rsp=2929 lasterr=0x0
+[2026-11-11_17:59:46:172][linkscope]  [B] hb req=2949 bad=0 rsp=2949 lasterr=0x0
+[2026-11-11_17:59:46:670][linkscope]  [B] hb req=2969 bad=0 rsp=2969 lasterr=0x0
+[2026-11-11_17:59:47:185][linkscope]  [B] hb req=2989 bad=0 rsp=2989 lasterr=0x0
+[2026-11-11_17:59:47:685][linkscope]  [B] hb req=3009 bad=0 rsp=3009 lasterr=0x0
+[2026-11-11_17:59:48:178][linkscope]  [B] hb req=3029 bad=0 rsp=3029 lasterr=0x0
+[2026-11-11_17:59:48:675][linkscope]  [B] hb req=3049 bad=0 rsp=3049 lasterr=0x0
+[2026-11-11_17:59:49:179][linkscope]  [B] hb req=3069 bad=0 rsp=3069 lasterr=0x0
+[2026-11-11_17:59:49:669][linkscope]  [B] hb req=3089 bad=0 rsp=3089 lasterr=0x0
+[2026-11-11_17:59:50:173][linkscope]  [B] hb req=3109 bad=0 rsp=3109 lasterr=0x0
+[2026-11-11_17:59:50:551]APP|[SYS INFO] mem: used:101088, free:264820; log: drop/all[0/0], at_recv 0.
+[2026-11-11_17:59:50:679][linkscope]  [B] hb req=3129 bad=0 rsp=3129 lasterr=0x0
+[2026-11-11_17:59:51:176][linkscope]  [B] hb req=3149 bad=0 rsp=3149 lasterr=0x0
+[2026-11-11_17:59:51:678][linkscope]  [B] hb req=3169 bad=0 rsp=3169 lasterr=0x0
+[2026-11-11_17:59:52:180][linkscope]  [B] hb req=3189 bad=0 rsp=3189 lasterr=0x0
+[2026-11-11_17:59:52:676][linkscope]  [B] hb req=3209 bad=0 rsp=3209 lasterr=0x0
+[2026-11-11_17:59:53:176][linkscope]  [B] hb req=3229 bad=0 rsp=3229 lasterr=0x0
+[2026-11-11_17:59:53:676][linkscope]  [B] hb req=3249 bad=0 rsp=3249 lasterr=0x0
+[2026-11-11_17:59:54:175][linkscope]  [B] hb req=3269 bad=0 rsp=3269 lasterr=0x0
+[2026-11-11_17:59:54:676][linkscope]  [B] hb req=3289 bad=0 rsp=3289 lasterr=0x0
+[2026-11-11_17:59:55:176][linkscope]  [B] hb req=3309 bad=0 rsp=3309 lasterr=0x0
+[2026-11-11_17:59:55:672][linkscope]  [B] hb req=3329 bad=0 rsp=3329 lasterr=0x0
+[2026-11-11_17:59:56:174][linkscope]  [B] hb req=3349 bad=0 rsp=3349 lasterr=0x0
+[2026-11-11_17:59:56:669][linkscope]  [B] hb req=3369 bad=0 rsp=3369 lasterr=0x0
+[2026-11-11_17:59:57:168][linkscope]  [B] hb req=3389 bad=0 rsp=3389 lasterr=0x0
+[2026-11-11_17:59:57:682][linkscope]  [B] hb req=3409 bad=0 rsp=3409 lasterr=0x0
+[2026-11-11_17:59:58:180][linkscope]  [B] hb req=3429 bad=0 rsp=3429 lasterr=0x0
+[2026-11-11_17:59:58:682][linkscope]  [B] hb req=3449 bad=0 rsp=3449 lasterr=0x0
+[2026-11-11_17:59:59:181][linkscope]  [B] hb req=3469 bad=0 rsp=3469 lasterr=0x0
+[2026-11-11_17:59:59:677][linkscope]  [B] hb req=3489 bad=0 rsp=3489 lasterr=0x0
+[2026-11-11_18:00:00:176][linkscope]  [B] hb req=3509 bad=0 rsp=3509 lasterr=0x0
+[2026-11-11_18:00:00:552]APP|[SYS INFO] mem: used:101344, free:264564; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:00:00:676][linkscope]  [B] hb req=3529 bad=0 rsp=3529 lasterr=0x0
+[2026-11-11_18:00:01:176][linkscope]  [B] hb req=3549 bad=0 rsp=3549 lasterr=0x0
+[2026-11-11_18:00:01:675][linkscope]  [B] hb req=3569 bad=0 rsp=3569 lasterr=0x0
+[2026-11-11_18:00:02:174][linkscope]  [B] hb req=3589 bad=0 rsp=3589 lasterr=0x0
+[2026-11-11_18:00:02:675][linkscope]  [B] hb req=3609 bad=0 rsp=3609 lasterr=0x0
+[2026-11-11_18:00:03:176][linkscope]  [B] hb req=3629 bad=0 rsp=3629 lasterr=0x0
+[2026-11-11_18:00:03:675][linkscope]  [B] hb req=3649 bad=0 rsp=3649 lasterr=0x0
+[2026-11-11_18:00:04:172][linkscope]  [B] hb req=3669 bad=0 rsp=3669 lasterr=0x0
+[2026-11-11_18:00:04:670][linkscope]  [B] hb req=3689 bad=0 rsp=3689 lasterr=0x0
+[2026-11-11_18:00:05:169][linkscope]  [B] hb req=3709 bad=0 rsp=3709 lasterr=0x0
+[2026-11-11_18:00:05:685][linkscope]  [B] hb req=3728 bad=0 rsp=3728 lasterr=0x0
+[2026-11-11_18:00:06:183][linkscope]  [B] hb req=3749 bad=0 rsp=3749 lasterr=0x0
+[2026-11-11_18:00:06:680][linkscope]  [B] hb req=3769 bad=0 rsp=3769 lasterr=0x0
+[2026-11-11_18:00:07:181][linkscope]  [B] hb req=3789 bad=0 rsp=3789 lasterr=0x0
+[2026-11-11_18:00:07:679][linkscope]  [B] hb req=3809 bad=0 rsp=3809 lasterr=0x0
+[2026-11-11_18:00:08:182][linkscope]  [B] hb req=3829 bad=0 rsp=3829 lasterr=0x0
+[2026-11-11_18:00:08:675][linkscope]  [B] hb req=3848 bad=0 rsp=3848 lasterr=0x0
+[2026-11-11_18:00:09:174][linkscope]  [B] hb req=3868 bad=0 rsp=3868 lasterr=0x0
+[2026-11-11_18:00:09:678][linkscope]  [B] hb req=3889 bad=0 rsp=3889 lasterr=0x0
+[2026-11-11_18:00:10:178][linkscope]  [B] hb req=3909 bad=0 rsp=3909 lasterr=0x0
+[2026-11-11_18:00:10:552]APP|[SYS INFO] mem: used:101124, free:264784; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:00:10:676][linkscope]  [B] hb req=3929 bad=0 rsp=3929 lasterr=0x0
+[2026-11-11_18:00:11:176][linkscope]  [B] hb req=3949 bad=0 rsp=3949 lasterr=0x0
+[2026-11-11_18:00:11:675][linkscope]  [B] hb req=3969 bad=0 rsp=3969 lasterr=0x0
+[2026-11-11_18:00:12:173][linkscope]  [B] hb req=3989 bad=0 rsp=3989 lasterr=0x0
+[2026-11-11_18:00:12:676][linkscope]  [B] hb req=4009 bad=0 rsp=4009 lasterr=0x0
+[2026-11-11_18:00:13:175][linkscope]  [B] hb req=4029 bad=0 rsp=4029 lasterr=0x0
+[2026-11-11_18:00:13:678][linkscope]  [B] hb req=4049 bad=0 rsp=4049 lasterr=0x0
+[2026-11-11_18:00:14:176][linkscope]  [B] hb req=4069 bad=0 rsp=4069 lasterr=0x0
+[2026-11-11_18:00:14:674][linkscope]  [B] hb req=4089 bad=0 rsp=4089 lasterr=0x0
+[2026-11-11_18:00:15:177][linkscope]  [B] hb req=4109 bad=0 rsp=4109 lasterr=0x0
+[2026-11-11_18:00:15:682][linkscope]  [B] hb req=4129 bad=0 rsp=4129 lasterr=0x0
+[2026-11-11_18:00:16:184][linkscope]  [B] hb req=4149 bad=0 rsp=4149 lasterr=0x0

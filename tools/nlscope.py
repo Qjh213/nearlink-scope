@@ -102,7 +102,10 @@ class ScopeApp:
         self.parser = LineParser()
         self.last_draw_n = -1
         self.last_draw_monitor_n = -1
-        self.aux_terminal = None
+        self.aux_terminals = []
+        self.serial_workbench = None
+        self.serial_workbench_tree = None
+        self.serial_workbench_polling = False
         self.analysis_console = None
         self.main_serial_handle = None
         self.main_serial_lock = threading.Lock()
@@ -120,11 +123,7 @@ class ScopeApp:
         ttk.Button(controls, text="停止", command=self.stop).pack(side="left")
         ttk.Button(controls, text="清空", command=self.clear).pack(side="left", padx=6)
         ttk.Button(controls, text="导出", command=self.export).pack(side="left")
-        ttk.Button(controls, text="辅助串口", command=self.open_aux_terminal).pack(side="left", padx=6)
-        ttk.Button(controls, text="分析终端", command=self.open_analysis_console).pack(side="left")
-        ttk.Button(controls, text="双串口开始", command=self.start_dual).pack(side="left")
-        ttk.Button(controls, text="双串口停止", command=self.stop_dual).pack(side="left", padx=6)
-        ttk.Button(controls, text="联合导出", command=self.export_dual).pack(side="left")
+        ttk.Button(controls, text="串口工作台", command=self.open_serial_workbench).pack(side="left", padx=6)
         self.status = tk.StringVar(value="就绪：可打开 M1/M2 QCOM 日志回放")
         ttk.Label(controls, textvariable=self.status).pack(side="right")
 
@@ -177,17 +176,124 @@ class ScopeApp:
         self.root.after(100, self.poll)
         self.refresh_ports(preferred="COM3")
 
+    def _live_aux_terminals(self):
+        self.aux_terminals = [
+            terminal for terminal in self.aux_terminals
+            if terminal.window.winfo_exists()
+        ]
+        return self.aux_terminals
+
+    def _reserved_serial_ports(self, current=None) -> set[str]:
+        ports = set()
+        if self.main_serial_handle is not None and self.active_port:
+            ports.add(self.active_port)
+        for terminal in self._live_aux_terminals():
+            if terminal is not current and terminal.is_open and terminal.active_port:
+                ports.add(terminal.active_port)
+        return ports
+
     def open_aux_terminal(self):
         from serial_terminal import SerialTerminalWindow
-        if self.aux_terminal is not None and self.aux_terminal.window.winfo_exists():
-            self.aux_terminal.window.lift()
-            self.aux_terminal.window.focus_force()
-            return self.aux_terminal
-        self.aux_terminal = SerialTerminalWindow(
-            self.root, discover_serial_ports,
-            reserved_ports=lambda: ({self.active_port} if self.active_port and not self.stop_event.is_set() else set()),
+        number = len(self._live_aux_terminals()) + 1
+        holder = {}
+        terminal = SerialTerminalWindow(
+            self.root, discover_serial_ports, terminal_name=f"辅助串口 {number}",
+            reserved_ports=lambda: self._reserved_serial_ports(holder.get("terminal")),
         )
-        return self.aux_terminal
+        holder["terminal"] = terminal
+        self.aux_terminals.append(terminal)
+        self._refresh_workbench()
+        return terminal
+
+    def open_serial_workbench(self):
+        if self.serial_workbench is not None and self.serial_workbench.winfo_exists():
+            self.serial_workbench.lift()
+            self.serial_workbench.focus_force()
+            self._refresh_workbench()
+            return self.serial_workbench
+
+        window = self.tk.Toplevel(self.root)
+        self.serial_workbench = window
+        window.title("LinkScope · 串口工作台")
+        window.geometry("760x430")
+        toolbar = self.ttk.Frame(window, padding=10)
+        toolbar.pack(fill="x")
+        self.ttk.Button(toolbar, text="新建辅助串口", command=self.open_aux_terminal).pack(side="left")
+        self.ttk.Button(toolbar, text="分析端终端", command=self.open_analysis_console).pack(side="left", padx=6)
+        self.ttk.Button(toolbar, text="全部开始", command=self.start_dual).pack(side="left")
+        self.ttk.Button(toolbar, text="全部停止", command=self.stop_dual).pack(side="left", padx=6)
+        self.ttk.Button(toolbar, text="联合导出", command=self.export_dual).pack(side="left")
+        self.ttk.Button(toolbar, text="刷新状态", command=self._refresh_workbench).pack(side="right")
+
+        self.ttk.Label(
+            window,
+            text="主分析串口由主窗口选择；辅助串口可新建多个，每个端口只能被一个窗口占用。",
+            padding=(12, 3),
+        ).pack(fill="x")
+        columns = ("name", "port", "state", "blocks", "bytes")
+        tree = self.ttk.Treeview(window, columns=columns, show="headings", height=12)
+        self.serial_workbench_tree = tree
+        for key, title, width in (
+            ("name", "终端", 150), ("port", "端口", 120), ("state", "状态", 110),
+            ("blocks", "接收块", 100), ("bytes", "字节数", 110),
+        ):
+            tree.heading(key, text=title)
+            tree.column(key, width=width, anchor="center")
+        tree.pack(fill="both", expand=True, padx=10, pady=8)
+        tree.bind("<Double-1>", lambda _event: self._show_selected_aux())
+        footer = self.ttk.Frame(window, padding=(10, 0, 10, 10))
+        footer.pack(fill="x")
+        self.ttk.Button(footer, text="打开选中终端", command=self._show_selected_aux).pack(side="left")
+        self.ttk.Button(footer, text="关闭选中终端", command=self._close_selected_aux).pack(side="left", padx=6)
+        self._refresh_workbench()
+        self.serial_workbench_polling = True
+        window.after(500, self._poll_workbench)
+        return window
+
+    def _refresh_workbench(self) -> None:
+        tree = self.serial_workbench_tree
+        if tree is None or not tree.winfo_exists():
+            return
+        for item in tree.get_children():
+            tree.delete(item)
+        for index, terminal in enumerate(self._live_aux_terminals()):
+            selected = terminal.active_port or terminal.port_map.get(terminal.port.get(), "未选择")
+            tree.insert("", "end", iid=str(index), values=(
+                terminal.terminal_name, selected, "已打开" if terminal.is_open else "未打开",
+                terminal.rx_chunks, terminal.rx_bytes,
+            ))
+
+    def _poll_workbench(self) -> None:
+        if self.serial_workbench is None or not self.serial_workbench.winfo_exists():
+            self.serial_workbench_polling = False
+            return
+        self._refresh_workbench()
+        self.serial_workbench.after(500, self._poll_workbench)
+
+    def _selected_aux(self):
+        tree = self.serial_workbench_tree
+        if tree is None:
+            return None
+        selection = tree.selection()
+        terminals = self._live_aux_terminals()
+        if not selection:
+            return terminals[0] if terminals else None
+        index = int(selection[0])
+        return terminals[index] if index < len(terminals) else None
+
+    def _show_selected_aux(self) -> None:
+        terminal = self._selected_aux()
+        if terminal is None:
+            terminal = self.open_aux_terminal()
+        terminal.window.deiconify()
+        terminal.window.lift()
+        terminal.window.focus_force()
+
+    def _close_selected_aux(self) -> None:
+        terminal = self._selected_aux()
+        if terminal is not None:
+            terminal.close()
+            self._refresh_workbench()
 
     def open_analysis_console(self):
         from serial_terminal import AnalysisSerialConsoleWindow
@@ -210,27 +316,32 @@ class ScopeApp:
 
     def start_dual(self) -> None:
         """Open responder terminal first, then start the gated analysis serial."""
-        terminal = self.open_aux_terminal()
-        if not terminal.is_open:
-            terminal.open_port()
-        if not terminal.is_open:
-            self.status.set("双串口启动失败：辅助串口未打开")
-            return
+        terminals = self._live_aux_terminals()
+        if not terminals:
+            terminals = [self.open_aux_terminal()]
+        for terminal in terminals:
+            if not terminal.is_open:
+                terminal.open_port()
+            if not terminal.is_open:
+                self.status.set(f"全部启动失败：{terminal.terminal_name} 未打开")
+                return
         self.start_serial()
         if not self.stop_event.is_set():
-            self.status.set("双串口已打开：请先复位COM4，再复位COM3，等待完整平台签名")
+            self.status.set("串口工作台已启动：请按实验顺序复位各板卡，等待完整平台签名")
 
     def stop_dual(self) -> None:
         self.stop()
-        if self.aux_terminal is not None and self.aux_terminal.is_open:
-            self.aux_terminal.close_port()
+        for terminal in self._live_aux_terminals():
+            if terminal.is_open:
+                terminal.close_port()
         self.status.set(
             f"双串口已停止，数据与时长已保留：{self._format_duration(self._capture_seconds())}"
         )
 
     def export_dual(self) -> None:
         from tkinter import filedialog, messagebox
-        if self.aux_terminal is None:
+        terminals = self._live_aux_terminals()
+        if not terminals:
             messagebox.showerror("没有辅助日志", "请先打开辅助串口终端并完成一次双串口采集。")
             return
         directory = filedialog.askdirectory(title="选择本轮实验导出目录")
@@ -238,31 +349,37 @@ class ScopeApp:
             return
         target = Path(directory)
         paths = list(self.session.export(target, "initiator_COM3"))
-        responder_path = target / "responder_COM4.log"
-        self.aux_terminal.write_log(responder_path)
-        settings = {
-            "port": self.aux_terminal.active_port or self.aux_terminal.port_map.get(self.aux_terminal.port.get(), ""),
-            "baudrate": int(self.aux_terminal.baudrate.get()),
-            "byte_size": int(self.aux_terminal.byte_size.get()),
-            "stop_bits": float(self.aux_terminal.stop_bits.get()),
-            "parity": self.aux_terminal.parity.get(),
-            "flow_control": self.aux_terminal.flow_control.get(),
-            "dtr": self.aux_terminal.dtr.get(), "rts": self.aux_terminal.rts.get(),
-        }
+        auxiliary = []
+        auxiliary_paths = []
+        for index, terminal in enumerate(terminals, start=1):
+            port = terminal.active_port or terminal.port_map.get(terminal.port.get(), "unknown")
+            safe_port = re.sub(r"[^A-Za-z0-9_-]", "_", port or f"aux{index}")
+            log_path = target / f"aux_{safe_port}.log"
+            terminal.write_log(log_path)
+            auxiliary_paths.append(log_path)
+            auxiliary.append({
+                "name": terminal.terminal_name, "port": port,
+                "baudrate": int(terminal.baudrate.get()), "byte_size": int(terminal.byte_size.get()),
+                "stop_bits": float(terminal.stop_bits.get()), "parity": terminal.parity.get(),
+                "flow_control": terminal.flow_control.get(),
+                "dtr": terminal.dtr.get(), "rts": terminal.rts.get(),
+                "rx_bytes": terminal.rx_bytes, "rx_chunks": terminal.rx_chunks,
+                "log": log_path.name,
+            })
         run_path = target / "run.json"
         run_path.write_text(json.dumps({
             "app_version": APP_VERSION,
             "exported_at": datetime.now().isoformat(timespec="seconds"),
             "analysis_port": self.active_port,
-            "auxiliary_serial": settings,
+            "auxiliary_serials": auxiliary,
             "platform_signature": asdict(self.session.signature),
             "capture_seconds": self._capture_seconds(),
             "analysis_samples": len(self.session.samples),
             "monitor_reports": len(self.session.adv_records),
-            "auxiliary_rx_bytes": self.aux_terminal.rx_bytes,
-            "auxiliary_rx_chunks": self.aux_terminal.rx_chunks,
+            "auxiliary_rx_bytes": sum(item["rx_bytes"] for item in auxiliary),
+            "auxiliary_rx_chunks": sum(item["rx_chunks"] for item in auxiliary),
         }, ensure_ascii=False, indent=2), encoding="utf-8")
-        paths.extend((responder_path, run_path))
+        paths.extend((*auxiliary_paths, run_path))
         messagebox.showinfo("联合导出完成", "\n".join(str(path) for path in paths))
 
     def refresh_ports(self, preferred: str | None = None) -> None:
@@ -426,7 +543,8 @@ class ScopeApp:
             from tkinter import messagebox
             messagebox.showerror("没有可用串口", "请连接开发板并点击“刷新”。")
             return
-        if self.aux_terminal is not None and self.aux_terminal.is_open and self.aux_terminal.active_port == port:
+        if any(terminal.is_open and terminal.active_port == port
+               for terminal in self._live_aux_terminals()):
             from tkinter import messagebox
             messagebox.showerror("串口已占用", f"{port} 已被辅助串口终端打开。")
             return

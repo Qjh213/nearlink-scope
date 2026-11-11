@@ -70,15 +70,17 @@ class SerialTerminalWindow:
     """独立Toplevel窗口；串口worker只向队列写，Tk更新全部留在UI线程。"""
 
     def __init__(self, root, discover_ports: Callable[[], list[tuple[str, str]]],
-                 reserved_ports: Callable[[], set[str]] | None = None) -> None:
+                 reserved_ports: Callable[[], set[str]] | None = None,
+                 terminal_name: str = "辅助串口") -> None:
         import tkinter as tk
         from tkinter import scrolledtext, ttk
 
         self.tk, self.ttk = tk, ttk
         self.discover_ports = discover_ports
         self.reserved_ports = reserved_ports or (lambda: set())
+        self.terminal_name = terminal_name
         self.window = tk.Toplevel(root)
-        self.window.title("LinkScope · 辅助串口终端")
+        self.window.title(f"LinkScope · {terminal_name}")
         self.window.geometry("1040x700")
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.events: queue.Queue = queue.Queue()
@@ -207,6 +209,7 @@ class SerialTerminalWindow:
             self.worker = threading.Thread(target=self._reader, args=(handle, self.stop_event), daemon=True)
             self.worker.start()
             self.open_button.configure(text="Close Port")
+            self.window.title(f"LinkScope · {self.terminal_name} · {settings.port}")
             self.status.set(f"已打开 {settings.port} @ {settings.baudrate}")
         except Exception as exc:
             messagebox.showerror("打开串口失败", str(exc))
@@ -220,6 +223,7 @@ class SerialTerminalWindow:
             except Exception:
                 pass
         self.open_button.configure(text="Open Port")
+        self.window.title(f"LinkScope · {self.terminal_name}")
         self.status.set(f"串口已关闭；保留 {self.rx_chunks} 个接收块、{self.rx_bytes} bytes")
 
     def _reader(self, handle, stop_event: threading.Event) -> None:

@@ -24,6 +24,8 @@ param(
     [int]$Hz = 100,
     [int]$Payload = 40,
     [int]$Window = 1,
+    [ValidateRange(0, 65535)]
+    [int]$CfgId = 0,
     [int]$IntvSlot = 0,
     [ValidateSet('sle', 'ble')]
     [string]$Link = 'sle',
@@ -168,7 +170,7 @@ if (-not $NoConfig -and $Role -ne 'none') {
         Set-Cfg 'CONFIG_LINK_SCOPE_BLE_WRITE_REQUEST' $null
         Set-Cfg 'CONFIG_LINK_SCOPE_BLE_WRITE_COMMAND' 'y'
     }
-    Set-Cfg 'CONFIG_LINK_SCOPE_CFG_ID' '0'
+    Set-Cfg 'CONFIG_LINK_SCOPE_CFG_ID' ([string]$CfgId)
     Set-Cfg 'CONFIG_LINK_SCOPE_PROBE_HZ' ([string]$Hz)
     Set-Cfg 'CONFIG_LINK_SCOPE_PAYLOAD_BYTES' ([string]$Payload)
     Set-Cfg 'CONFIG_LINK_SCOPE_TIMEOUT_MS' ([string]$TimeoutMs)
@@ -195,7 +197,7 @@ if (-not $NoConfig -and $Role -ne 'none') {
 
     [System.IO.File]::Copy($appcfg, "$appcfg.bak.linkscope", $true)
     Write-TextLf $appcfg ($lines -join "`n")
-    Write-Host "[4/4] .config 已切到 role=$Role link=$Link sle-write=$SleWriteMode ble-write=$BleWriteMode ble-intv=$BleIntvUnit monitor-filter-dup=$($MonitorFilterDuplicates.IsPresent)（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
+    Write-Host "[4/4] .config 已切到 role=$Role link=$Link cfg=$CfgId sle-write=$SleWriteMode ble-write=$BleWriteMode ble-intv=$BleIntvUnit monitor-filter-dup=$($MonitorFilterDuplicates.IsPresent)（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
 }
 
 Write-Host ""

@@ -1,0 +1,11 @@
+cfg,group,condition,payload_b,target_hz,window,timeout_ms,intv_slot,duration_s,repeats,formal,notes
+500,baseline,near-clean,40,40,1,50,24,180,2,yes,run at matrix start and end
+511,payload,payload-12B,12,40,1,50,24,180,2,yes,fixed near position
+512,payload,payload-100B,100,40,1,50,24,180,2,yes,fixed near position
+513,payload,payload-250B,250,40,1,50,24,180,2,yes,require 60s MTU smoke first
+521,rate,rate-10Hz,40,10,1,50,24,180,2,yes,fixed near position
+522,rate,rate-25Hz,40,25,1,50,24,180,2,yes,fixed near position
+523,rate,rate-60Hz,40,60,1,50,24,180,2,yes,capacity-boundary exploration
+531,distance,medium-measured,40,40,1,50,24,180,2,yes,record measured distance and obstruction
+532,distance,far-measured,40,40,1,50,24,180,2,yes,record measured distance and obstruction
+541,interference,controlled-2.4GHz-load,40,40,1,50,24,180,2,conditional,formal only if interference is reproducible

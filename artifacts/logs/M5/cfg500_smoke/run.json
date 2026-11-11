@@ -1,0 +1,38 @@
+{
+  "app_version": "M5.0.0-dev",
+  "exported_at": "2026-11-11T20:10:10",
+  "analysis_port": "COM3",
+  "auxiliary_serial": {
+    "port": "COM4",
+    "baudrate": 115200,
+    "byte_size": 8,
+    "stop_bits": 1.0,
+    "parity": "None",
+    "flow_control": "No Ctrl Flow",
+    "dtr": false,
+    "rts": false
+  },
+  "platform_signature": {
+    "role": "monitor",
+    "link": "sle-passive-seek",
+    "cfg": "unknown",
+    "payload_b": null,
+    "rate_hz": null,
+    "window": null,
+    "timeout_ms": null,
+    "mtu": null,
+    "interval": null,
+    "latency": null,
+    "seek_interval": 100,
+    "seek_window": 100,
+    "filter_duplicates": 1,
+    "selftest": "PASS",
+    "measurement_ready": true,
+    "source": "COM3"
+  },
+  "capture_seconds": 23.595789999933913,
+  "analysis_samples": 0,
+  "monitor_reports": 1436,
+  "auxiliary_rx_bytes": 3462,
+  "auxiliary_rx_chunks": 82
+}

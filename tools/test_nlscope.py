@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines, load_log
-from nlscope import ScopeApp, discover_serial_ports
+from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports
 from serial_terminal import SerialSettings, encode_outbound, format_received
 
 
@@ -79,6 +79,10 @@ class ParserTests(unittest.TestCase):
         app.strict_live_gate = True
         app.pre_ready_samples = 0
         app.parser = LineParser()
+        class Expected:
+            def get(self):
+                return "不校验预期实验"
+        app.expected_profile_name = Expected()
         stale = app.parser.feed("ADV,99,100,3,12345678,-40,0,1,aa\n")
         self.assertFalse(app._apply_live_gate(stale))
         self.assertIsNone(stale.adv)
@@ -93,6 +97,29 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(app._apply_live_gate(fresh))
         self.assertIsNotNone(fresh.adv)
         self.assertNotEqual(fresh.raw_line, "")
+
+    def test_expected_m5_signature_rejects_wrong_role(self):
+        app = ScopeApp.__new__(ScopeApp)
+        app.strict_live_gate = True
+        app.pre_ready_samples = 0
+        app.parser = LineParser()
+        class Expected:
+            def get(self):
+                return "M5 cfg500 基线 40B/40Hz"
+        app.expected_profile_name = Expected()
+        signature = app.parser.signature
+        signature.role, signature.link, signature.cfg = "monitor", "sle-passive-seek", "unknown"
+        signature.measurement_ready = True
+        stale = app.parser.feed("S,1,10,30,20,3,4\n")
+        self.assertFalse(app._apply_live_gate(stale))
+        self.assertTrue(app._signature_mismatches())
+
+        expected = M5_PROFILES["M5 cfg500 基线 40B/40Hz"]
+        for field, value in expected.items():
+            setattr(signature, field, value)
+        signature.mtu, signature.interval = 520, 24
+        fresh = app.parser.feed("S,2,40,60,20,3,4\n")
+        self.assertTrue(app._apply_live_gate(fresh))
 
     def test_malformed_adv_is_rejected(self):
         session = feed_lines([

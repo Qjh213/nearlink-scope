@@ -1,0 +1,82 @@
+{
+  "platform_signature": {
+    "role": "monitor",
+    "link": "sle-passive-seek",
+    "cfg": "unknown",
+    "payload_b": null,
+    "rate_hz": null,
+    "window": null,
+    "timeout_ms": null,
+    "mtu": null,
+    "interval": null,
+    "latency": null,
+    "seek_interval": 100,
+    "seek_window": 100,
+    "filter_duplicates": 1,
+    "selftest": "PASS",
+    "measurement_ready": true,
+    "source": "COM3"
+  },
+  "pc_exact_metrics": {
+    "n": 0,
+    "p50_us": null,
+    "p90_us": null,
+    "p99_us": null,
+    "p999_us": null,
+    "max_us": null,
+    "mean_us": null,
+    "jitter_us": 0,
+    "bproc_mean_us": null,
+    "sample_span_s": 0.0,
+    "sent": 0,
+    "recv": 0,
+    "to": 0,
+    "dup": 0,
+    "ooo": 0,
+    "bad": 0,
+    "drop": 0,
+    "loss_ppm": 0
+  },
+  "monitor_metrics": {
+    "n": 1436,
+    "devices": {
+      "867ec3df": {
+        "n": 1436,
+        "rssi_min_dbm": -48,
+        "rssi_p10_dbm": -45,
+        "rssi_p50_dbm": -40,
+        "rssi_p90_dbm": -36,
+        "rssi_max_dbm": -34,
+        "invalid_rssi": 0,
+        "events": {
+          "3": {
+            "n": 720,
+            "interval_p50_us": 25631,
+            "interval_p90_us": 50695,
+            "interval_p99_us": 88246,
+            "interval_max_us": 123707
+          },
+          "11": {
+            "n": 716,
+            "interval_p50_us": 25652,
+            "interval_p90_us": 51251,
+            "interval_p99_us": 88129,
+            "interval_max_us": 123752
+          }
+        }
+      }
+    },
+    "sequence": {
+      "gaps": 0,
+      "duplicates": 0,
+      "out_of_order": 0,
+      "resets": 0
+    },
+    "board_latest_mon": {
+      "n": 1400,
+      "drop": 0,
+      "invalid_rssi": 0
+    }
+  },
+  "board_latest_sum": {}
+}

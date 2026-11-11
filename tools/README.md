@@ -75,6 +75,10 @@ LinkScope 明确使用 `115200 / 8N1 / no flow control / DTR off / RTS off`，�
 并关闭两端串口。“联合导出”生成 `initiator_COM3.log/.csv/.json/.md`、`responder_COM4.log`和包含
 双端串口配置、平台签名及样本数的 `run.json`。使用内置双串口时必须关闭QCOM。
 
+M5运行前还要在主界面选择“预期实验”。程序不仅要求平台签名完整，还会把role、link、cfg、Payload、rate、
+window和timeout与所选矩阵条件逐项比较；已出现的MTU和interval也必须为520和24。不匹配的数据不会进入
+统计或计时，界面会直接列出期望值与实际值。
+
 也可以无界面采集10秒并导出，便于验收和自动化：
 
 ```powershell

@@ -18,6 +18,30 @@ from nlscope_core import LineParser, Session, load_log
 
 APP_VERSION = "M5.0.0-dev"
 
+M5_PROFILES = {
+    "不校验预期实验": None,
+    "M5 cfg500 基线 40B/40Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "500",
+                                  "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
+    "M5 cfg511 Payload 12B": {"role": "initiator", "link": "sle-write_cmd", "cfg": "511",
+                                 "payload_b": 12, "rate_hz": 40, "window": 1, "timeout_ms": 50},
+    "M5 cfg512 Payload 100B": {"role": "initiator", "link": "sle-write_cmd", "cfg": "512",
+                                  "payload_b": 100, "rate_hz": 40, "window": 1, "timeout_ms": 50},
+    "M5 cfg513 Payload 250B": {"role": "initiator", "link": "sle-write_cmd", "cfg": "513",
+                                  "payload_b": 250, "rate_hz": 40, "window": 1, "timeout_ms": 50},
+    "M5 cfg521 Rate 10Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "521",
+                               "payload_b": 40, "rate_hz": 10, "window": 1, "timeout_ms": 50},
+    "M5 cfg522 Rate 25Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "522",
+                               "payload_b": 40, "rate_hz": 25, "window": 1, "timeout_ms": 50},
+    "M5 cfg523 Rate 60Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "523",
+                               "payload_b": 40, "rate_hz": 60, "window": 1, "timeout_ms": 50},
+    "M5 cfg531 中距": {"role": "initiator", "link": "sle-write_cmd", "cfg": "531",
+                          "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
+    "M5 cfg532 远距": {"role": "initiator", "link": "sle-write_cmd", "cfg": "532",
+                          "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
+    "M5 cfg541 干扰": {"role": "initiator", "link": "sle-write_cmd", "cfg": "541",
+                          "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
+}
+
 
 def discover_serial_ports() -> list[tuple[str, str]]:
     """返回 [(device, display)]；无 pyserial 或无设备时返回空列表。"""
@@ -99,6 +123,18 @@ class ScopeApp:
         ttk.Button(controls, text="联合导出", command=self.export_dual).pack(side="left")
         self.status = tk.StringVar(value="就绪：可打开 M1/M2 QCOM 日志回放")
         ttk.Label(controls, textvariable=self.status).pack(side="right")
+
+        experiment = ttk.Frame(root, padding=(10, 2, 10, 5))
+        experiment.pack(fill="x")
+        ttk.Label(experiment, text="预期实验").pack(side="left")
+        self.expected_profile_name = tk.StringVar(value="M5 cfg500 基线 40B/40Hz")
+        self.expected_profile_combo = ttk.Combobox(
+            experiment, textvariable=self.expected_profile_name, values=list(M5_PROFILES),
+            state="readonly", width=34,
+        )
+        self.expected_profile_combo.pack(side="left", padx=6)
+        self.expected_status = tk.StringVar(value="将校验role/link/cfg/payload/rate/window/timeout")
+        ttk.Label(experiment, textvariable=self.expected_status).pack(side="left", padx=8)
 
         self.signature = tk.StringVar(value="平台签名：等待数据")
         ttk.Label(root, textvariable=self.signature, padding=(12, 8), background="#0d344f", foreground="white").pack(fill="x")
@@ -290,7 +326,7 @@ class ScopeApp:
     def _apply_live_gate(self, event) -> bool:
         """Drop data emitted by a board that predates the current verified boot."""
         if (self.strict_live_gate and (event.sample or event.adv)
-                and not self.parser.signature.measurement_ready):
+                and (not self.parser.signature.measurement_ready or self._signature_mismatches())):
             self.pre_ready_samples += 1
             event.sample = None
             event.adv = None
@@ -298,6 +334,23 @@ class ScopeApp:
             event.raw_line = ""
             return False
         return True
+
+    def _signature_mismatches(self) -> list[str]:
+        expected = M5_PROFILES.get(self.expected_profile_name.get())
+        if not expected:
+            return []
+        signature = self.parser.signature
+        mismatches = []
+        for field, wanted in expected.items():
+            actual = getattr(signature, field)
+            if actual != wanted:
+                mismatches.append(f"{field}={actual!s}（期望{wanted!s}）")
+        # M5 fixed conditions that are learned later in the startup chain.
+        if signature.mtu is not None and signature.mtu != 520:
+            mismatches.append(f"mtu={signature.mtu}（期望520）")
+        if signature.interval is not None and signature.interval != 24:
+            mismatches.append(f"intv={signature.interval}（期望24）")
+        return mismatches
 
     def open_log(self) -> None:
         from tkinter import filedialog
@@ -449,12 +502,16 @@ class ScopeApp:
                     self.capture_started_monotonic = time.monotonic()
                     self.capture_frozen_seconds = 0.0
                 self.session.add(event, self.parser.signature)
-                if self.strict_live_gate and not self.parser.signature.measurement_ready:
+                mismatches = self._signature_mismatches()
+                if self.strict_live_gate and (not self.parser.signature.measurement_ready or mismatches):
+                    detail = "；".join(mismatches[:3]) if mismatches else "等待ready"
+                    self.expected_status.set("未准入：" + detail)
                     self.status.set(
                         f"等待本次启动就绪：请复位 COM4→COM3 | 原始行 {len(self.session.raw_lines)} | "
                         f"已忽略中途样本 {self.pre_ready_samples}"
                     )
                 else:
+                    self.expected_status.set("签名匹配，允许正式采集")
                     self.status.set(
                         f"正式采集中 {self.source_label} | 原始行 {len(self.session.raw_lines)} | "
                         f"有效样本 {len(self.session.samples) + len(self.session.adv_records)}"

@@ -73,8 +73,21 @@ mean(abs(RTT[i] - RTT[i-1]))
 - 中途停止并导出，CSV/JSON/Markdown 齐全；
 - 保存截图和导出目录作为 M3 实验证据。
 
-## 6. 当前状态
+## 6. 最终验收结果
 
-2026-11-10：第一版数据引擎、桌面界面和导出功能完成；三项单元测试通过；BLE Command 正式日志
-43,702条原始样本、BLE Request 正式日志34,486条原始样本均可回放；GUI 启动冒烟通过。实时串口尚待
-安装 pyserial 后连接 COM3 完成双板验收。
+M3 已于2026-11-10完成验收：
+
+- 8项自动化测试全部通过；
+- BLE Command 43,702条与 BLE Request 34,486条既有正式日志均可回放；
+- GUI 已完成串口枚举、严格准入、开始/停止、采集时长冻结和四件套导出复验；
+- COM3 正式轮连续采集621.125秒，得到24,845个有效样本，序号1→24,845连续且唯一；
+- 实际接收速率39.999988 samples/s，timeout/duplicate/out-of-order/bad/drop均为0；
+- PC精确统计为 p50=15.157 ms、p90=17.803 ms、p99=20.044 ms、p99.9=25.354 ms、
+  max=36.644 ms、mean=15.310 ms、jitter=3.473 ms；
+- `.log/.csv/.json/.md` 四件套、验收摘要与 SHA-256 已归档到
+  `artifacts/logs/M3/formal_live/`；
+- Windows 安装版与 Portable 版已完成构建、安装/运行/卸载验收，并以
+  [`v0.3.6`](https://github.com/Qjh213/nearlink-scope/releases/tag/v0.3.6) 正式发布。
+
+PC精确分位数和板端对数直方图插值结果存在小幅差异，属于两种统计方法的预期差别；两端的 mean、jitter、
+max 与异常计数一致。M3 的代码、实验、原始证据、问题日志和分发版本均已闭环，可以进入 M4。

@@ -1,0 +1,90 @@
+[2026-11-11_18:04:50:567]APP|[SYS INFO] mem: used:99740, free:266168; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:04:52:318]boot.
+[2026-11-11_18:04:52:364]Flash Init Fail! ret = 0x80001341
+[2026-11-11_18:04:52:380]verify_public_rootkey secure verify disable!
+[2026-11-11_18:04:52:380]verify_params_key_area secure verify disable!
+[2026-11-11_18:04:52:380]verify_params_area_info secure verify disable!
+[2026-11-11_18:04:52:380]verify_image_key_area secure verify disable!
+[2026-11-11_18:04:52:395]verify_image_code_info secure verify disable!
+[2026-11-11_18:04:52:458]SSB Uart Init Succ!
+[2026-11-11_18:04:52:458]SSB Flash Init Succ!
+[2026-11-11_18:04:52:458]verify_image_key_area secure verify disable!
+[2026-11-11_18:04:52:458]verify_image_code_info secure verify disable!
+[2026-11-11_18:04:52:490]Flashboot Uart Init Succ!
+[2026-11-11_18:04:52:490]Flashboot Malloc Init Succ!
+[2026-11-11_18:04:52:490]Flash Init Succ!
+[2026-11-11_18:04:52:490]No need to fix SR!
+[2026-11-11_18:04:52:490]io level work in hw mode, level[chip]:0x33
+[2026-11-11_18:04:52:490]flashboot version : 1.10.102
+[2026-11-11_18:04:52:505][UPG] upgrade init OK!
+[2026-11-11_18:04:52:505]No need to upgrade...
+[2026-11-11_18:04:52:505]flash_encrypt disable.
+[2026-11-11_18:04:52:505]verify_image_key_area secure verify disable!
+[2026-11-11_18:04:52:505]verify_image_code_info secure verify disable!
+[2026-11-11_18:04:52:925]APP|dbg uart init ok.
+[2026-11-11_18:04:52:956][UPG] upgrade init OK!
+[2026-11-11_18:04:52:956]APP|init_sle_mac failed!!! 
+[2026-11-11_18:04:52:956]APP|init_dev_addr, mac_addr:0x9b,0x 0,0x73,0xc8,0x**,0x**,
+[2026-11-11_18:04:52:956]xo_trim_temp_comp val:0 0
+[2026-11-11_18:04:52:956]los_at_plt_cmd_register EXCUTE
+[2026-11-11_18:04:52:956]APP|thread[11] func null
+[2026-11-11_18:04:52:956]cpu 0 entering scheduler
+[2026-11-11_18:04:53:018]APP|btc open
+[2026-11-11_18:04:53:018][RADAR_LOG] alg ctrl read from nv [1][2][0][0][1][1][20]
+[2026-11-11_18:04:53:018]device_main_init: 0!
+[2026-11-11_18:04:53:018]===hal_initialize_phy===226===
+[2026-11-11_18:04:53:033]device_module_init:: succ!
+[2026-11-11_18:04:53:033]cali_set_cali_mask:old[0x0] -> new[0x1fa2]
+
+[2026-11-11_18:04:53:033]fe_rf_initialize
+[2026-11-11_18:04:53:033]cali_offline_cali_entry enter
+[2026-11-11_18:04:53:063]cali_set_cali_done_flag:old[0x0] -> new[0x1]
+
+[2026-11-11_18:04:53:063]rf cali OK. time cost:21, ret:0
+
+[2026-11-11_18:04:53:063][linkscope]  ===== LinkScope W1 =====
+[2026-11-11_18:04:53:063][linkscope]  role=responder (B)
+[2026-11-11_18:04:53:063][linkscope]  [SELFTEST] pass=32 fail=0 -> PASS
+[2026-11-11_18:04:53:079][linkscope]  [B] responder booting, wait SLE stack 2000ms
+[2026-11-11_18:04:55:088][ACore] sle enable cbk in, result:0
+[2026-11-11_18:04:55:088]sle enable
+[2026-11-11_18:04:55:088][sle uart server] sle uart add service in
+[2026-11-11_18:04:55:088][sle uart server] sle uart add service, server_id:1, service_handle:1, property_handle:2
+[2026-11-11_18:04:55:088][sle uart server] start service cbk callback server_id:1, handle:1, status:0
+[2026-11-11_18:04:55:107][sle uart server] sle uart add service out
+[2026-11-11_18:04:55:107][sle uart server] sle_uart_local addr: 0xca 0xca 0xca 0xca 0xca 0xca 
+[2026-11-11_18:04:55:107][ACore] sle set announce param, handle:1, mode:3, min_interval:c8, max_interval:c8, tx_power: 18
+[2026-11-11_18:04:55:118][ACore] sle set announce param, own addr:0xca:**:**:**:ca:ca
+[2026-11-11_18:04:55:118][ACore] sle set announce param, peer addr:0x00:**:**:**:00:00
+[2026-11-11_18:04:55:134][sle uart server] data.announce_data_len = 6
+[2026-11-11_18:04:55:134][sle uart server] data.announce_data: 0x01 0x02 0x01 0x02 0x02 0x00 
+[2026-11-11_18:04:55:134][sle uart server] local_name_len = 9
+[2026-11-11_18:04:55:154][sle uart server] local_name: 0x6c 0x69 0x6e 0x6b 0x73 0x63 0x6f 0x70 0x65 
+[2026-11-11_18:04:55:154][sle uart server] data.seek_rsp_data_len = 14
+[2026-11-11_18:04:55:154][sle uart server] data.seek_rsp_data: 0x0c 0x02 0x0a 0x0a 0x0b 0x6c 0x69 0x6e 0x6b 0x73 0x63 0x6f 0x70 0x65 
+[2026-11-11_18:04:55:154][sle uart server] set announce data success.
+[2026-11-11_18:04:55:165][ACore] sle start announce in, adv_id:1
+[2026-11-11_18:04:55:165][ACore] sle adv cbk in, event:0 status:0
+[2026-11-11_18:04:55:185][ACore] sle adv cbk in, event:1 status:0
+[2026-11-11_18:04:55:185][ACore] sle adv cbk in, event:2 status:0
+[2026-11-11_18:04:55:185][ACore] sle adv cbk in, event:3 status:0
+[2026-11-11_18:04:55:185][sle uart server] sle announce enable callback id:01, state:0
+[2026-11-11_18:04:55:185][sle uart server] init ok
+[2026-11-11_18:04:55:185][linkscope]  [B] ready, waiting for REQ (name=linkscope)
+[2026-11-11_18:04:55:693][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:04:56:192][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:04:56:688][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:04:56:954]xo update temp:3,diff:0,xo:0x3083c
+[2026-11-11_18:04:57:188][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:04:57:688][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:04:58:186][linkscope]  [B] hb req=0 bad=0 rsp=0 lasterr=0x0
+[2026-11-11_18:05:04:063]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:05:14:057]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:05:24:053]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:05:34:061]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:05:44:073]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:05:54:071]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:06:04:058]APP|[SYS INFO] mem: used:99572, free:266336; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:06:14:076]APP|[SYS INFO] mem: used:99388, free:266520; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:06:24:074]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.
+[2026-11-11_18:06:34:058]APP|[SYS INFO] mem: used:99372, free:266536; log: drop/all[0/0], at_recv 0.

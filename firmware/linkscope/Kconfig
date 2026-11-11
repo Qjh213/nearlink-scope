@@ -28,7 +28,33 @@ config LINK_SCOPE_ROLE_LOOPBACK
 
 config LINK_SCOPE_ROLE_TIMING
     bool "Timing: hello_timing (time base + scheduler jitter)"
+
+config LINK_SCOPE_ROLE_MONITOR
+    bool "Monitor: passive SLE announce observer (no connect)"
 endchoice
+
+config LINK_SCOPE_MONITOR_SEEK_INTERVAL
+    int "Monitor seek interval (0.125ms units)"
+    range 4 65535
+    default 100
+    depends on LINK_SCOPE_ROLE_MONITOR
+    help
+        SLE seek interval，单位0.125ms。默认100对应12.5ms。
+
+config LINK_SCOPE_MONITOR_SEEK_WINDOW
+    int "Monitor seek window (0.125ms units)"
+    range 4 65535
+    default 100
+    depends on LINK_SCOPE_ROLE_MONITOR
+    help
+        SLE seek window，单位0.125ms，必须不大于seek interval。
+
+config LINK_SCOPE_MONITOR_FILTER_DUP
+    bool "Filter duplicate announce reports"
+    default n
+    depends on LINK_SCOPE_ROLE_MONITOR
+    help
+        默认关闭，保留连续广播报告，才能分析到达间隔和RSSI起伏。
 
 choice
     prompt "LinkScope transport (initiator/responder 用)"

@@ -1,0 +1,51 @@
+# M4 · SLE被动广播监测
+
+## 1. 目标与边界
+
+使用一块 BearPi-Pico H3863 作为只听不连的SLE监测探头，持续接收seek报告并交给LinkScope PC工具
+聚合分析。监测模式不发起连接、配对、MTU交换或服务发现，因此不能测RTT，也不是空口抓包器。
+
+当前SDK公开的 `sle_seek_result_info_t` 包含：`event_type`、地址、定向地址、RSSI、`data_status`、
+`data_length` 和广播数据。M4只对这些公开字段及板端回调到达时间做可核验分析。
+
+## 2. 第一阶段固件
+
+- 新增 `role=monitor` 与 `link=sle-passive-seek`；
+- seek回调第一行读取板端微秒时钟；
+- 回调只复制固定快照到消息队列，不在SLE service线程格式化或打印；
+- 任务上下文输出：
+
+```text
+ADV,seq,t_us,event,addr_id,rssi_dbm,data_status,data_len,payload_hex
+```
+
+- 地址默认输出FNV-1a稳定标识，不直接公开完整设备地址；
+- RSSI原始值 `0x7F` 输出为127并单独累计 `invalid_rssi`；
+- 每200条输出 `# MON n=... drop=... invalid_rssi=...`；
+- 默认seek interval/window均为100，即12.5ms，重复过滤关闭。
+
+## 3. PC工具计划
+
+- 新增广播记录解析器与历史日志回放；
+- 设备列表：稳定ID、首次/最近出现、报告数、最近RSSI；
+- 单设备RSSI时间序列、到达间隔分布和活跃度；
+- 导出原始日志、逐报告CSV、会话JSON和Markdown摘要；
+- 任意设备没有广播序号时，不计算或宣称丢包率。
+
+## 4. 实验顺序
+
+1. COM4运行已知SLE advertiser，COM3运行monitor，验证字段和持续seek；
+2. 对照 `filter_duplicates=0/1` 的上报行为；
+3. 固定位置运行至少10分钟，检查时间戳单调、设备聚合、有效RSSI和队列drop；
+4. 归档固件身份、配置、两端日志、导出文件和SHA-256。
+
+距离、干扰、包长和速率矩阵留给M5。M4只证明被动监测链路成立、字段解释正确、PC端能够稳定保存和分析。
+
+## 5. 验收标准
+
+- 固件无任何连接API调用，运行中只保持seek；
+- 10分钟正式轮无崩溃、无重启、消息队列drop为0；
+- PC解析、回放、设备聚合和四类导出均有自动化测试；
+- 受控设备的报告时间戳单调，RSSI与Payload可复核；
+- 原始证据与问题处理记录齐全；
+- M4文章和配图保存到 `E:\Starklink\文章\link\M4`。

@@ -1,7 +1,7 @@
 # LinkScope 固件
 
-星闪链路体检仪的板端程序。M1 已完成测量内核与 SLE 写语义 A/B；M2 在同一套
-探针、统计口径和硬件上加入 BLE 对照。
+星闪链路体检仪的板端程序。M1完成测量内核与SLE写语义A/B，M2加入BLE公平对照，M4新增
+只听不连的SLE被动广播监测角色。
 
 ## 角色（编译期选择，一次构建一种）
 
@@ -11,6 +11,7 @@
 | `responder` | B | 收 REQ，打 t2/t3，立即回 RSP | 只打印连接状态，不打印数据 |
 | `loopback` | 任意一块 | 不走空口，本机自环 | 噪声底（工具自身抖动） |
 | `timing` | 任意一块 | `hello_timing`：时基分辨率/开销、延时与调度粒度 | 一组带单位的时间数字 |
+| `monitor` | 任意一块 | 持续SLE seek，不连接、不配对 | `ADV,...` 广播报告与 `# MON` 汇总 |
 
 ## 目录
 
@@ -25,6 +26,7 @@ linkscope/
 ├── link_ops.h              传输层抽象（send / start / ready）
 ├── link_sle_initiator.c    SLE 发起端（seek→connect→pair→MTU→发现→写/收）
 ├── link_sle_responder.c    SLE 响应端（写回调里打点并回发）
+├── link_sle_monitor.c      SLE 被动监测（seek回调快照→队列→任务打印）
 ├── link_loopback.c         本机自环
 ├── sle/                    从官方 sle_uart 样例拷来的 server/adv 底座（带©头）
 └── test/                   主机侧单元测试（gcc 或 zig）
@@ -88,6 +90,15 @@ BLE 同样支持两种写语义，默认是 Write Command。响应端 RX 特征�
 BLE 端只有在 CCCD 写确认完成、连接参数更新成功且实际授予间隔等于配置值后才进入
 测量态。日志链路名为 `ble-write_cmd` 或 `ble-write_req`；Request 模式额外记录协议层
 写确认，Command 模式不伪造这项指标。
+
+M4被动监测固件：
+
+```powershell
+.\firmware\scripts\sync-to-sdk.ps1 -Role monitor -Link sle
+```
+
+默认seek interval/window均为100（单位0.125ms），重复过滤关闭。固件只输出地址的稳定哈希ID，
+不发起连接；`ADV` 行中的时间戳在seek回调第一行由板端TCXO取得，RSSI值127表示SDK未提供有效RSSI。
 
 ```bash
 # Ubuntu 虚拟机

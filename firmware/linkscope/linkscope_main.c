@@ -6,6 +6,7 @@
  *   responder  B：收 REQ、立刻回 RSP
  *   loopback   本机自环：量噪声底
  *   timing     hello_timing：量时基/调度
+ *   monitor    SLE被动seek：只听公开广播，不连接
  */
 #include <stddef.h>
 #include "common_def.h"
@@ -81,7 +82,7 @@ void ls_on_frame(const uint8_t *data, uint16_t len, uint32_t t_recv_us)
 
 static void print_banner(void)
 {
-    osal_printk("\r\n%s ===== LinkScope W1 =====\r\n", LS_LOG);
+    osal_printk("\r\n%s ===== LinkScope =====\r\n", LS_LOG);
 #if defined(CONFIG_LINK_SCOPE_ROLE_INITIATOR)
     osal_printk("%s role=initiator (A)\r\n", LS_LOG);
 #elif defined(CONFIG_LINK_SCOPE_ROLE_RESPONDER)
@@ -90,6 +91,8 @@ static void print_banner(void)
     osal_printk("%s role=loopback\r\n", LS_LOG);
 #elif defined(CONFIG_LINK_SCOPE_ROLE_TIMING)
     osal_printk("%s role=timing\r\n", LS_LOG);
+#elif defined(CONFIG_LINK_SCOPE_ROLE_MONITOR)
+    osal_printk("%s role=monitor\r\n", LS_LOG);
 #else
     osal_printk("%s role=UNKNOWN (check Kconfig)\r\n", LS_LOG);
 #endif
@@ -234,6 +237,8 @@ static void *ls_task(const char *arg)
     }
 #elif defined(CONFIG_LINK_SCOPE_ROLE_RESPONDER)
     ls_responder_run();
+#elif defined(CONFIG_LINK_SCOPE_ROLE_MONITOR)
+    ls_monitor_run();
 #elif defined(CONFIG_LINK_SCOPE_ROLE_INITIATOR) || defined(CONFIG_LINK_SCOPE_ROLE_LOOPBACK)
     engine_loop();
 #else

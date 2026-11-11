@@ -18,7 +18,7 @@
 param(
     [string]$SdkRoot = 'Z:\home\bearpi\project\bearpi-pico_h3863-master',
     [string]$ProjectRoot = 'E:\nearlink-scope',
-    [ValidateSet('none', 'initiator', 'responder', 'loopback', 'timing')]
+    [ValidateSet('none', 'initiator', 'responder', 'loopback', 'timing', 'monitor')]
     [string]$Role = 'none',
     [int]$TimeoutMs = 50,
     [int]$Hz = 100,
@@ -147,7 +147,7 @@ if (-not $NoConfig -and $Role -ne 'none') {
                        'CONFIG_SAMPLE_SUPPORT_SLE_LEARNING_DEMO') {
         Set-Cfg $other $null
     }
-    foreach ($r in 'INITIATOR', 'RESPONDER', 'LOOPBACK', 'TIMING') {
+    foreach ($r in 'INITIATOR', 'RESPONDER', 'LOOPBACK', 'TIMING', 'MONITOR') {
         if ($r -ieq $Role.ToUpper()) { Set-Cfg "CONFIG_LINK_SCOPE_ROLE_$r" 'y' } else { Set-Cfg "CONFIG_LINK_SCOPE_ROLE_$r" $null }
     }
     foreach ($k in 'SLE', 'BLE') {
@@ -184,6 +184,9 @@ if (-not $NoConfig -and $Role -ne 'none') {
     Set-Cfg 'CONFIG_LINK_SCOPE_STATS_EVERY' '200'
     Set-Cfg 'CONFIG_LINK_SCOPE_RUN_SELFTEST' 'y'
     Set-Cfg 'CONFIG_LINK_SCOPE_TIMING_GPIO' '2'
+    Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_SEEK_INTERVAL' '100'
+    Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_SEEK_WINDOW' '100'
+    Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_FILTER_DUP' $null
 
     [System.IO.File]::Copy($appcfg, "$appcfg.bak.linkscope", $true)
     Write-TextLf $appcfg ($lines -join "`n")

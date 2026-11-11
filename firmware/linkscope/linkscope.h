@@ -27,4 +27,7 @@ void ls_on_frame(const uint8_t *data, uint16_t len, uint32_t t_recv_us);
 /* 响应端主循环（仅在 role=responder 时编译） */
 void ls_responder_run(void);
 
+/* SLE被动广播监测主循环（仅在role=monitor时编译） */
+void ls_monitor_run(void);
+
 #endif /* LINK_SCOPE_H */

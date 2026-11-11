@@ -97,6 +97,14 @@ M4被动监测固件：
 .\firmware\scripts\sync-to-sdk.ps1 -Role monitor -Link sle
 ```
 
+M4重复过滤对照组使用：
+
+```powershell
+.\firmware\scripts\sync-to-sdk.ps1 -Role monitor -Link sle -MonitorFilterDuplicates
+```
+
+启动签名必须显示 `filter_dup=1`；不带该开关时恢复基线 `filter_dup=0`。
+
 默认seek interval/window均为100（单位0.125ms），重复过滤关闭。固件只输出地址的稳定哈希ID，
 不发起连接；`ADV` 行中的时间戳在seek回调第一行由板端TCXO取得，RSSI值127表示SDK未提供有效RSSI。
 

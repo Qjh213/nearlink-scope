@@ -33,6 +33,7 @@ param(
     [string]$BleWriteMode = 'command',
     [ValidateRange(6, 3200)]
     [int]$BleIntvUnit = 6,
+    [switch]$MonitorFilterDuplicates,
     [switch]$Quiet,
     [switch]$NoConfig
 )
@@ -186,11 +187,15 @@ if (-not $NoConfig -and $Role -ne 'none') {
     Set-Cfg 'CONFIG_LINK_SCOPE_TIMING_GPIO' '2'
     Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_SEEK_INTERVAL' '100'
     Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_SEEK_WINDOW' '100'
-    Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_FILTER_DUP' $null
+    if ($MonitorFilterDuplicates) {
+        Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_FILTER_DUP' 'y'
+    } else {
+        Set-Cfg 'CONFIG_LINK_SCOPE_MONITOR_FILTER_DUP' $null
+    }
 
     [System.IO.File]::Copy($appcfg, "$appcfg.bak.linkscope", $true)
     Write-TextLf $appcfg ($lines -join "`n")
-    Write-Host "[4/4] .config 已切到 role=$Role link=$Link sle-write=$SleWriteMode ble-write=$BleWriteMode ble-intv=$BleIntvUnit（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
+    Write-Host "[4/4] .config 已切到 role=$Role link=$Link sle-write=$SleWriteMode ble-write=$BleWriteMode ble-intv=$BleIntvUnit monitor-filter-dup=$($MonitorFilterDuplicates.IsPresent)（备份 $appcfg.bak.linkscope）" -ForegroundColor Green
 }
 
 Write-Host ""

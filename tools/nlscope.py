@@ -211,6 +211,18 @@ class ScopeApp:
         if self.capture_started_monotonic is None and self.capture_frozen_seconds > 0:
             self.capture_started_monotonic = time.monotonic() - self.capture_frozen_seconds
 
+    def _apply_live_gate(self, event) -> bool:
+        """Drop data emitted by a board that predates the current verified boot."""
+        if (self.strict_live_gate and (event.sample or event.adv)
+                and not self.parser.signature.measurement_ready):
+            self.pre_ready_samples += 1
+            event.sample = None
+            event.adv = None
+            # Do not let ignored traffic make the raw-line count/export look like capture started.
+            event.raw_line = ""
+            return False
+        return True
+
     def open_log(self) -> None:
         from tkinter import filedialog
         path = filedialog.askopenfilename(
@@ -269,11 +281,12 @@ class ScopeApp:
             self.stop_event = threading.Event()
             source_id, stop_event = self.source_id, self.stop_event
             self.strict_live_gate = True
+            # Reopening a live source requires a fresh board boot handshake; otherwise an already-running
+            # monitor would immediately continue feeding data before the user resets the board.
+            self.parser.signature.measurement_ready = False
             self.paused = False
-            self._resume_capture_clock()
             self.status.set(
-                f"继续采集 {port}，已保留 {len(self.session.samples) + len(self.session.adv_records)} 个样本和 "
-                f"{self._format_duration(self._capture_seconds())}"
+                f"已重新打开 {port}，历史数据与时长已保留；等待复位板卡和本次启动就绪"
             )
         else:
             source_id, stop_event = self._begin_source(port)
@@ -350,11 +363,7 @@ class ScopeApp:
                 self.last_draw_n = -1
             else:
                 event = self.parser.feed(item, received_at=datetime.now())
-                if (self.strict_live_gate and (event.sample or event.adv)
-                        and not self.parser.signature.measurement_ready):
-                    self.pre_ready_samples += 1
-                    event.sample = None
-                    event.adv = None
+                self._apply_live_gate(event)
                 if ((event.sample or event.adv) and self.capture_started_monotonic is None and self.strict_live_gate
                         and not self.paused and not self.stop_event.is_set()):
                     self.capture_started_monotonic = time.monotonic()

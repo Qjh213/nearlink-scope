@@ -53,6 +53,24 @@ class ParserTests(unittest.TestCase):
         parser.feed("[linkscope] [MON] seek enabled status=0x0\n")
         self.assertTrue(parser.signature.measurement_ready)
 
+    def test_live_monitor_drops_data_until_current_boot_is_ready(self):
+        app = ScopeApp.__new__(ScopeApp)
+        app.strict_live_gate = True
+        app.pre_ready_samples = 0
+        app.parser = LineParser()
+        stale = app.parser.feed("ADV,99,100,3,12345678,-40,0,1,aa\n")
+        self.assertFalse(app._apply_live_gate(stale))
+        self.assertIsNone(stale.adv)
+        self.assertEqual(stale.raw_line, "")
+        self.assertEqual(app.pre_ready_samples, 1)
+
+        app.parser.feed("[linkscope] role=monitor\n")
+        app.parser.feed("[linkscope] [MON] seek enabled status=0x0\n")
+        fresh = app.parser.feed("ADV,1,200,3,12345678,-41,0,1,bb\n")
+        self.assertTrue(app._apply_live_gate(fresh))
+        self.assertIsNotNone(fresh.adv)
+        self.assertNotEqual(fresh.raw_line, "")
+
     def test_malformed_adv_is_rejected(self):
         session = feed_lines([
             "ADV,1,10,3,nothex,-40,0,1,aa\n",

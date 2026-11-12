@@ -597,25 +597,11 @@ class ScopeApp:
         self.analysis_boot_seen = False
         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
             self.analysis_console.wait_for_boot(clear=True)
-        resume = (self.paused and self.active_port == port
-                  and bool(self.session.raw_lines or self.session.samples or self.session.adv_records))
-        if resume:
-            self.source_id += 1
-            self.stop_event = threading.Event()
-            source_id, stop_event = self.source_id, self.stop_event
-            self.strict_live_gate = True
-            # Reopening a live source requires a fresh board boot handshake; otherwise an already-running
-            # monitor would immediately continue feeding data before the user resets the board.
-            self.parser.signature.measurement_ready = False
-            self.paused = False
-            self.status.set(
-                f"已重新打开 {port}，历史数据与时长已保留；等待复位板卡和本次启动就绪"
-            )
-        else:
-            source_id, stop_event = self._begin_source(port)
-            self.strict_live_gate = True
-            self.active_port = port
-            self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
+        # 每次开始都是独立实验会话：不恢复旧Session、旧时长或旧平台签名。
+        source_id, stop_event = self._begin_source(port)
+        self.strict_live_gate = True
+        self.active_port = port
+        self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
         threading.Thread(target=self._serial_worker, args=(serial, port, source_id, stop_event), daemon=True).start()
 
     def _serial_worker(self, serial_module, port: str, source_id: int, stop_event: threading.Event) -> None:
@@ -695,7 +681,11 @@ class ScopeApp:
                 if isinstance(item, tuple) and item and item[0] == "serial_bytes":
                     received_at, raw = item[1], item[2]
                     line = raw.decode("utf-8", errors="replace")
-                    if not self.analysis_boot_seen and is_board_boot_line(line):
+                    if not self.analysis_boot_seen:
+                        if not is_board_boot_line(line):
+                            # 复位前数据不进入解析器、Session、窗口或任何导出。
+                            self.status.set(f"已打开 {self.active_port}，等待板卡复位和boot.启动边界")
+                            continue
                         self.analysis_boot_seen = True
                         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
                             self.analysis_console.begin_boot_session()

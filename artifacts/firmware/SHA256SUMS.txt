@@ -13,3 +13,4 @@ c2a74c402307e47b1d9dc7cd4d752912d7e36f39120cd4fadddae72820197934  linkscope-ble-
 65b0f3fd7e68b73289f62b2b6607a6c5935f72861cfac0fa551fbef8098de863  linkscope-sle-monitor-m4.fwpkg
 815a01d0a03b44af7b2d36f24c7efba27aba3541ac1aa6c24e8b7cfb341b8af2  linkscope-m5-cfg500-sle-cmd-40hz-40b.fwpkg
 89f2259e140b398cf9719478cfa7a6ac4f90ef727e7d7616bcbff6b3b23cba03  linkscope-m5-cfg511-payload12.fwpkg
+195983f03942e8aaf5c2120e99190ad23221a41aa24c91a1bfa5384a40bd7fec  linkscope-m5-cfg512-payload100.fwpkg

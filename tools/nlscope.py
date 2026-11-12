@@ -44,13 +44,6 @@ M5_PROFILES = {
 }
 
 
-def history_from_last_boot(lines: list[str]) -> list[str]:
-    for index in range(len(lines) - 1, -1, -1):
-        if is_board_boot_line(lines[index]):
-            return lines[index:]
-    return []
-
-
 def discover_serial_ports() -> list[tuple[str, str]]:
     """返回 [(device, display)]；无 pyserial 或无设备时返回空列表。"""
     try:
@@ -354,11 +347,9 @@ class ScopeApp:
             self.root, self.send_main_serial,
             port_callback=lambda: self.active_port if self.main_serial_handle is not None else "",
         )
-        history = history_from_last_boot(list(self.session.raw_lines)) if self.analysis_boot_seen else []
-        if history:
-            self.analysis_console.load_history(history)
-        else:
-            self.analysis_console.wait_for_boot(clear=False)
+        # 原始终端只显示创建之后、下一次明确boot.开始的实时日志，不回填历史。
+        self.analysis_boot_seen = False
+        self.analysis_console.wait_for_boot(clear=True)
         return self.analysis_console
 
     def send_main_serial(self, payload: bytes) -> int:

@@ -398,24 +398,6 @@ class AnalysisSerialConsoleWindow:
         self.clear()
         self.status.set("已捕获COM3 boot.，开始接收本次启动日志")
 
-    def load_history(self, lines: list[str]) -> None:
-        """回填主分析器已经接收的当前会话，解决终端中途打开时历史为空。"""
-        if not lines or not self.window.winfo_exists():
-            return
-        # Session.raw_lines为便于导出会去掉行尾；直接join会把全部历史粘成一行。
-        rendered = "\n".join(line.rstrip("\r\n") for line in lines) + "\n"
-        banner = f"--- 已回填本次boot.后的COM3日志：{len(lines)}行 ---\n"
-        self.log_lines.append(banner + rendered)
-        self.rx_chunks += len(lines)
-        self.rx_bytes += len(rendered.encode("utf-8", errors="replace"))
-        self.console.configure(state="normal")
-        self.console.insert("end", banner + rendered)
-        self.console.see("end")
-        self.console.configure(state="disabled")
-        self.status.set(
-            f"{self.port_callback() or 'COM3'} | 已回填{len(lines)}行，等待实时数据"
-        )
-
     def feed(self, stamp: datetime, data: bytes) -> None:
         if not self.window.winfo_exists():
             return

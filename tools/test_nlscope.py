@@ -5,8 +5,7 @@ import unittest
 from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines, load_log
-from nlscope import (M5_PROFILES, ScopeApp, discover_serial_ports,
-                     history_from_last_boot, is_board_boot_line)
+from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports, is_board_boot_line
 from serial_terminal import SerialSettings, encode_outbound, format_received, is_board_boot_line
 
 
@@ -30,16 +29,6 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(is_board_boot_line("[2026-11-12_10:00:00:000]boot."))
         self.assertFalse(is_board_boot_line("Flashboot Uart Init Succ!"))
         self.assertFalse(is_board_boot_line("flashboot."))
-        lines = ["old sample", "Flashboot Uart Init Succ!", "[stamp]boot.", "new log"]
-        self.assertEqual(history_from_last_boot(lines), ["[stamp]boot.", "new log"])
-        self.assertEqual(history_from_last_boot(["old sample"]), [])
-
-    def test_analysis_history_lines_keep_separators(self):
-        # raw_lines导出前不保留行尾，回填终端时必须显式恢复换行。
-        lines = ["[t]boot.", "Flash Init Succ!", "[linkscope] ready"]
-        rendered = "\n".join(line.rstrip("\r\n") for line in lines) + "\n"
-        self.assertEqual(rendered.count("\n"), 3)
-        self.assertIn("boot.\nFlash Init Succ!\n", rendered)
 
     def test_serial_terminal_payload_encoding(self):
         self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")

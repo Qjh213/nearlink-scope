@@ -76,6 +76,7 @@ void ls_hist_bounds(uint32_t idx, uint32_t *lo_us, uint32_t *hi_us);
 uint32_t ls_hist_quantile(const ls_stats_t *s, uint32_t q_per_mille);
 
 ls_summary_t ls_stats_summary(const ls_stats_t *s);
-uint32_t ls_loss_ppm(uint32_t sent, uint32_t recv);
+/* 已判定超时 / (有效响应 + 已判定超时)，不把尚在途请求算作损失。 */
+uint32_t ls_loss_ppm(uint32_t timeout, uint32_t recv);
 
 #endif /* LINK_SCOPE_STATS_H */

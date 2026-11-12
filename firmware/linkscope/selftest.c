@@ -132,7 +132,7 @@ static void test_stats(void)
     check(sum.max_us == 10000u, "stats max");
 
     /* 丢包 ppm */
-    check(ls_loss_ppm(1000u, 990u) == 10000u, "loss ppm 1%");
+    check(ls_loss_ppm(10u, 990u) == 10000u, "deadline miss ppm 1%");
     check(ls_loss_ppm(0u, 0u) == 0u, "loss ppm sent=0");
 
     /* 分段累计 */

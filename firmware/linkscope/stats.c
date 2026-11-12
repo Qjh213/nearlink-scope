@@ -155,15 +155,20 @@ uint32_t ls_hist_quantile(const ls_stats_t *s, uint32_t q_per_mille)
     return s->max_us;
 }
 
-uint32_t ls_loss_ppm(uint32_t sent, uint32_t recv)
+uint32_t ls_loss_ppm(uint32_t timeout, uint32_t recv)
 {
-    uint32_t lost;
+    uint32_t completed = timeout + recv;
 
-    if (sent == 0u) {
+    if (completed == 0u) {
         return 0u;
     }
-    lost = (sent > recv) ? (sent - recv) : 0u;
-    return (uint32_t)(((uint64_t)lost * 1000000u) / sent);
+    /*
+     * 只用已完成事务计算截止期限失败率。sent-recv 会把打印瞬间仍在途的
+     * 请求误算成丢包（window=1 时常见 1 包），造成无超时却 loss_ppm>0。
+     * timeout 包括后来才到达并记为 duplicate 的响应，语义是 deadline miss，
+     * 不是对物理层永久丢包的断言。
+     */
+    return (uint32_t)(((uint64_t)timeout * 1000000u) / completed);
 }
 
 ls_summary_t ls_stats_summary(const ls_stats_t *s)
@@ -187,7 +192,7 @@ ls_summary_t ls_stats_summary(const ls_stats_t *s)
     out.p999_us = ls_hist_quantile(s, 999u);
     out.mean_us = (s->n == 0u) ? 0u : (uint32_t)(s->sum_us / s->n);
     out.jitter_us = (s->jitter_n == 0u) ? 0u : (uint32_t)(s->jitter_sum_us / s->jitter_n);
-    out.loss_ppm = ls_loss_ppm(s->sent, s->recv);
+    out.loss_ppm = ls_loss_ppm(s->timeout, s->recv);
     out.bproc_mean_us = (s->n == 0u) ? 0u : (uint32_t)(s->bproc_sum_us / s->n);
     out.bproc_max_us = s->bproc_max_us;
     out.down_mean_us = (s->n == 0u) ? 0u : (uint32_t)(s->down_sum_us / s->n);

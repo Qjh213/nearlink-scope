@@ -345,6 +345,7 @@ class ScopeApp:
             self.root, self.send_main_serial,
             port_callback=lambda: self.active_port if self.main_serial_handle is not None else "",
         )
+        self.analysis_console.load_history(list(self.session.raw_lines))
         return self.analysis_console
 
     def send_main_serial(self, payload: bytes) -> int:

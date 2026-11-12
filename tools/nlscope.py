@@ -43,6 +43,18 @@ M5_PROFILES = {
 }
 
 
+def is_board_boot_line(line: str) -> bool:
+    """只把独立的boot.启动行当作复位边界，排除Flashboot等普通打印。"""
+    return re.search(r"(?:^|\]|[^A-Za-z])boot\.\s*$", line.strip(), re.IGNORECASE) is not None
+
+
+def history_from_last_boot(lines: list[str]) -> list[str]:
+    for index in range(len(lines) - 1, -1, -1):
+        if is_board_boot_line(lines[index]):
+            return lines[index:]
+    return []
+
+
 def discover_serial_ports() -> list[tuple[str, str]]:
     """返回 [(device, display)]；无 pyserial 或无设备时返回空列表。"""
     try:
@@ -110,6 +122,7 @@ class ScopeApp:
         self.analysis_console = None
         self.main_serial_handle = None
         self.main_serial_lock = threading.Lock()
+        self.analysis_boot_seen = False
 
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
@@ -345,7 +358,11 @@ class ScopeApp:
             self.root, self.send_main_serial,
             port_callback=lambda: self.active_port if self.main_serial_handle is not None else "",
         )
-        self.analysis_console.load_history(list(self.session.raw_lines))
+        history = history_from_last_boot(list(self.session.raw_lines)) if self.analysis_boot_seen else []
+        if history:
+            self.analysis_console.load_history(history)
+        else:
+            self.analysis_console.wait_for_boot(clear=False)
         return self.analysis_console
 
     def send_main_serial(self, payload: bytes) -> int:
@@ -589,6 +606,9 @@ class ScopeApp:
             from tkinter import messagebox
             messagebox.showerror("串口已占用", f"{port} 已被辅助串口终端打开。")
             return
+        self.analysis_boot_seen = False
+        if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
+            self.analysis_console.wait_for_boot(clear=True)
         resume = (self.paused and self.active_port == port
                   and bool(self.session.raw_lines or self.session.samples or self.session.adv_records))
         if resume:
@@ -686,9 +706,14 @@ class ScopeApp:
                 line = item
                 if isinstance(item, tuple) and item and item[0] == "serial_bytes":
                     received_at, raw = item[1], item[2]
-                    if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
-                        self.analysis_console.feed(received_at, raw)
                     line = raw.decode("utf-8", errors="replace")
+                    if not self.analysis_boot_seen and is_board_boot_line(line):
+                        self.analysis_boot_seen = True
+                        if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
+                            self.analysis_console.begin_boot_session()
+                    if (self.analysis_boot_seen and self.analysis_console is not None
+                            and self.analysis_console.window.winfo_exists()):
+                        self.analysis_console.feed(received_at, raw)
                 event = self.parser.feed(line, received_at=received_at)
                 self._apply_live_gate(event)
                 if ((event.sample or event.adv) and self.capture_started_monotonic is None and self.strict_live_gate

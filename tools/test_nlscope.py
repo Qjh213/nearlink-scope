@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines, load_log
-from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports
+from nlscope import (M5_PROFILES, ScopeApp, discover_serial_ports,
+                     history_from_last_boot, is_board_boot_line)
 from serial_terminal import SerialSettings, encode_outbound, format_received
 
 
@@ -24,6 +25,15 @@ LINES = [
 
 
 class ParserTests(unittest.TestCase):
+    def test_analysis_history_starts_at_explicit_board_boot(self):
+        self.assertTrue(is_board_boot_line("boot.\r\n"))
+        self.assertTrue(is_board_boot_line("[2026-11-12_10:00:00:000]boot."))
+        self.assertFalse(is_board_boot_line("Flashboot Uart Init Succ!"))
+        self.assertFalse(is_board_boot_line("flashboot."))
+        lines = ["old sample", "Flashboot Uart Init Succ!", "[stamp]boot.", "new log"]
+        self.assertEqual(history_from_last_boot(lines), ["[stamp]boot.", "new log"])
+        self.assertEqual(history_from_last_boot(["old sample"]), [])
+
     def test_serial_terminal_payload_encoding(self):
         self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")
         self.assertEqual(encode_outbound("01 aB ff", True, False), b"\x01\xab\xff")

@@ -368,6 +368,15 @@ class AnalysisSerialConsoleWindow:
         entry.bind("<Return>", lambda _event: self.send())
         ttk.Button(send, text="Send Command", command=self.send).pack(side="right")
 
+    def wait_for_boot(self, clear: bool = True) -> None:
+        if clear:
+            self.clear()
+        self.status.set("等待COM3板卡复位：捕获boot.后开始显示")
+
+    def begin_boot_session(self) -> None:
+        self.clear()
+        self.status.set("已捕获COM3 boot.，开始接收本次启动日志")
+
     def load_history(self, lines: list[str]) -> None:
         """回填主分析器已经接收的当前会话，解决终端中途打开时历史为空。"""
         if not lines or not self.window.winfo_exists():
@@ -375,7 +384,7 @@ class AnalysisSerialConsoleWindow:
         rendered = "".join(lines)
         if rendered and not rendered.endswith(("\n", "\r")):
             rendered += "\n"
-        banner = f"--- 已回填当前COM3会话历史：{len(lines)}行 ---\n"
+        banner = f"--- 已回填本次boot.后的COM3日志：{len(lines)}行 ---\n"
         self.log_lines.append(banner + rendered)
         self.rx_chunks += len(lines)
         self.rx_bytes += len(rendered.encode("utf-8", errors="replace"))

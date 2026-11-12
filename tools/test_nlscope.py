@@ -7,7 +7,7 @@ from pathlib import Path
 from nlscope_core import LineParser, feed_lines, load_log
 from nlscope import (M5_PROFILES, ScopeApp, discover_serial_ports,
                      history_from_last_boot, is_board_boot_line)
-from serial_terminal import SerialSettings, encode_outbound, format_received
+from serial_terminal import SerialSettings, encode_outbound, format_received, is_board_boot_line
 
 
 LINES = [

@@ -15,6 +15,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
+from serial_terminal import is_board_boot_line
 
 APP_VERSION = "M5.0.0-dev"
 
@@ -41,11 +42,6 @@ M5_PROFILES = {
     "M5 cfg541 干扰": {"role": "initiator", "link": "sle-write_cmd", "cfg": "541",
                           "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
 }
-
-
-def is_board_boot_line(line: str) -> bool:
-    """只把独立的boot.启动行当作复位边界，排除Flashboot等普通打印。"""
-    return re.search(r"(?:^|\]|[^A-Za-z])boot\.\s*$", line.strip(), re.IGNORECASE) is not None
 
 
 def history_from_last_boot(lines: list[str]) -> list[str]:
@@ -378,6 +374,7 @@ class ScopeApp:
         if not terminals:
             terminals = [self.open_aux_terminal()]
         for terminal in terminals:
+            terminal.arm_boot_gate(clear=True)
             if not terminal.is_open:
                 terminal.open_port()
             if not terminal.is_open:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import queue
+import re
 import threading
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,6 +17,11 @@ BYTE_SIZES = (4, 5, 6, 7, 8)
 STOP_BITS = (1, 1.5, 2)
 PARITIES = ("None", "Odd", "Even", "Mark", "Space")
 FLOW_CONTROLS = ("No Ctrl Flow", "SW Ctrl Flow", "HW Ctrl Flow")
+
+
+def is_board_boot_line(line: str) -> bool:
+    """只识别独立boot.启动行，排除Flashboot等包含boot的普通打印。"""
+    return re.search(r"(?:^|\]|[^A-Za-z])boot\.\s*$", line.strip(), re.IGNORECASE) is not None
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,7 @@ class SerialTerminalWindow:
         self.rx_bytes = 0
         self.rx_chunks = 0
         self.log_lines: list[str] = []
+        self.boot_seen = False
 
         settings = ttk.LabelFrame(self.window, text="COM Port Setting", padding=8)
         settings.pack(fill="x", padx=8, pady=(8, 4))
@@ -204,13 +211,14 @@ class SerialTerminalWindow:
                 rtscts=settings.flow_control == "HW Ctrl Flow", dsrdtr=False,
             )
             handle.dtr, handle.rts = settings.dtr, settings.rts
+            self.arm_boot_gate(clear=True)
             self.handle = handle
             self.stop_event = threading.Event()
             self.worker = threading.Thread(target=self._reader, args=(handle, self.stop_event), daemon=True)
             self.worker.start()
             self.open_button.configure(text="Close Port")
             self.window.title(f"LinkScope · {self.terminal_name} · {settings.port}")
-            self.status.set(f"已打开 {settings.port} @ {settings.baudrate}")
+            self.status.set(f"已打开 {settings.port} @ {settings.baudrate}；等待板卡复位")
         except Exception as exc:
             messagebox.showerror("打开串口失败", str(exc))
 
@@ -243,7 +251,13 @@ class SerialTerminalWindow:
             while True:
                 kind, *payload = self.events.get_nowait()
                 if kind == "data":
-                    self._append_received(payload[0], payload[1])
+                    stamp, data = payload[0], payload[1]
+                    if not self.boot_seen:
+                        if not is_board_boot_line(data.decode("utf-8", errors="replace")):
+                            continue
+                        self.boot_seen = True
+                        self.status.set(f"已捕获 {self.active_port} boot.，开始接收本次启动日志")
+                    self._append_received(stamp, data)
                 elif kind == "error":
                     self.status.set(f"串口错误：{payload[0]}")
                 elif kind == "closed" and not self.is_open:
@@ -277,6 +291,13 @@ class SerialTerminalWindow:
                 self.handle.dtr, self.handle.rts = self.dtr.get(), self.rts.get()
             except Exception as exc:
                 self.status.set(f"控制线设置失败：{exc}")
+
+    def arm_boot_gate(self, clear: bool = True) -> None:
+        self.boot_seen = False
+        if clear:
+            self.clear()
+        port = self.active_port or self.port_map.get(self.port.get(), "辅助串口")
+        self.status.set(f"等待 {port} 板卡复位：捕获boot.后开始记录")
 
     def send(self) -> None:
         from tkinter import messagebox

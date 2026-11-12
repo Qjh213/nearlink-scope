@@ -402,9 +402,8 @@ class AnalysisSerialConsoleWindow:
         """回填主分析器已经接收的当前会话，解决终端中途打开时历史为空。"""
         if not lines or not self.window.winfo_exists():
             return
-        rendered = "".join(lines)
-        if rendered and not rendered.endswith(("\n", "\r")):
-            rendered += "\n"
+        # Session.raw_lines为便于导出会去掉行尾；直接join会把全部历史粘成一行。
+        rendered = "\n".join(line.rstrip("\r\n") for line in lines) + "\n"
         banner = f"--- 已回填本次boot.后的COM3日志：{len(lines)}行 ---\n"
         self.log_lines.append(banner + rendered)
         self.rx_chunks += len(lines)

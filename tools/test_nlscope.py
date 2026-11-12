@@ -34,6 +34,13 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(history_from_last_boot(lines), ["[stamp]boot.", "new log"])
         self.assertEqual(history_from_last_boot(["old sample"]), [])
 
+    def test_analysis_history_lines_keep_separators(self):
+        # raw_lines导出前不保留行尾，回填终端时必须显式恢复换行。
+        lines = ["[t]boot.", "Flash Init Succ!", "[linkscope] ready"]
+        rendered = "\n".join(line.rstrip("\r\n") for line in lines) + "\n"
+        self.assertEqual(rendered.count("\n"), 3)
+        self.assertIn("boot.\nFlash Init Succ!\n", rendered)
+
     def test_serial_terminal_payload_encoding(self):
         self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")
         self.assertEqual(encode_outbound("01 aB ff", True, False), b"\x01\xab\xff")

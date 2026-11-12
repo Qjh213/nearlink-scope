@@ -42,6 +42,13 @@ static const uint16_t g_intv_sweep[] = {0x06u, 0x18u, 0x30u, 0x40u, 0x64u};
 static uint16_t g_conn_id;
 static sle_addr_t g_remote_addr;
 static ssapc_write_param_t g_write_param;
+/*
+ * 服务发现完成不等于测量条件已经稳定。
+ * g_service_ready 只表示属性句柄可写，用来允许连接参数协商；
+ * g_ready 才是 engine 的正式测量闸门。固定连接间隔配置下，只有收到
+ * on_param_update 成功回调后才打开，避免把参数切换前的启动瞬态计作丢包。
+ */
+static volatile uint8_t g_service_ready;
 static volatile uint8_t g_ready;
 static uint8_t g_peer_rssi = SLE_INVALID_RSSI;
 
@@ -148,7 +155,9 @@ static void on_connect_state(uint16_t conn_id, const sle_addr_t *addr,
             (void)sle_pair_remote_device(&g_remote_addr);
         }
     } else if (conn_state == SLE_ACB_STATE_DISCONNECTED) {
+        g_service_ready = 0u;
         g_ready = 0;
+        g_granted_intv = 0xFFFFu;
         osal_printk("%s [A] disconnected reason=0x%x, re-seek\r\n", LS_LOG, (uint32_t)disc_reason);
         (void)sle_remove_paired_remote_device(&g_remote_addr);
         start_seek();
@@ -219,8 +228,16 @@ static void on_find_property(uint8_t client_id, uint16_t conn_id, ssapc_find_pro
          * 前 25s 全部超时，白扔一段数据。 */
         g_last_tune_us = (uint32_t)(g_ready_us - LS_INTV_SWEEP_US);
     }
-    g_ready = 1u;
-    osal_printk("%s [A] property handle=0x%x, link ready\r\n", LS_LOG, property->handle);
+    g_service_ready = 1u;
+    if ((uint32_t)CONFIG_LINK_SCOPE_INTV_SLOT == 0u) {
+        g_ready = 1u; /* 扫描诊断模式保留原行为，不等待某个固定档位 */
+        osal_printk("%s [A] property handle=0x%x, measurement ready (sweep mode)\r\n",
+            LS_LOG, property->handle);
+    } else {
+        g_ready = 0u;
+        osal_printk("%s [A] property handle=0x%x, service ready; measurement waits for intv=%u\r\n",
+            LS_LOG, property->handle, (uint32_t)CONFIG_LINK_SCOPE_INTV_SLOT);
+    }
 }
 
 static void on_find_complete(uint8_t client_id, uint16_t conn_id, ssapc_find_structure_result_t *result,
@@ -273,6 +290,11 @@ static void on_param_update(uint16_t conn_id, errcode_t status, const sle_connec
     osal_printk("%s [A] param updated conn=0x%x intv=%u slot (%u us) latency=%u sup=%u\r\n", LS_LOG,
         (uint32_t)conn_id, (uint32_t)param->interval, (uint32_t)param->interval * 125u,
         (uint32_t)param->latency, (uint32_t)param->supervision);
+    if ((uint32_t)CONFIG_LINK_SCOPE_INTV_SLOT != 0u &&
+        param->interval == (uint16_t)CONFIG_LINK_SCOPE_INTV_SLOT) {
+        g_ready = 1u;
+        osal_printk("%s [A] measurement ready after target param update\r\n", LS_LOG);
+    }
 }
 
 static void on_notification(uint8_t client_id, uint16_t conn_id, ssapc_handle_value_t *data, errcode_t status)
@@ -372,7 +394,7 @@ static void sle_poll(uint32_t now_ms)
     uint32_t now = ls_now_us();
 
     unused(now_ms);
-    if (g_ready == 0u) {
+    if (g_service_ready == 0u) {
         return;
     }
     if (((uint32_t)CONFIG_LINK_SCOPE_INTV_SLOT != 0u) &&

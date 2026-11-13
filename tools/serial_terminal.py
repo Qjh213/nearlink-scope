@@ -43,6 +43,32 @@ class SerialLineAccumulator:
         return lines
 
 
+@dataclass
+class BootGateDecision:
+    accepted: bool
+    activated: bool = False
+
+
+class BootSessionGate:
+    """Single owner of the per-open boot boundary state."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self.active = False
+        self.rejected_lines = 0
+
+    def admit(self, line: str) -> BootGateDecision:
+        if self.active:
+            return BootGateDecision(True)
+        if is_board_boot_line(line):
+            self.active = True
+            return BootGateDecision(True, activated=True)
+        self.rejected_lines += 1
+        return BootGateDecision(False)
+
+
 def is_board_boot_line(line: str) -> bool:
     """识别复位boot边界，并容忍UART起始瞬间附着在boot前的乱码。"""
     text = line.strip().lower()
@@ -126,7 +152,7 @@ class SerialTerminalWindow:
         self.rx_bytes = 0
         self.rx_chunks = 0
         self.log_lines: list[str] = []
-        self.boot_seen = False
+        self.boot_gate = BootSessionGate()
 
         settings = ttk.LabelFrame(self.window, text="COM Port Setting", padding=8)
         settings.pack(fill="x", padx=8, pady=(8, 4))
@@ -295,10 +321,10 @@ class SerialTerminalWindow:
                     continue
                 if kind == "data":
                     stamp, data = payload[0], payload[1]
-                    if not self.boot_seen:
-                        if not is_board_boot_line(data.decode("utf-8", errors="replace")):
-                            continue
-                        self.boot_seen = True
+                    decision = self.boot_gate.admit(data.decode("utf-8", errors="replace"))
+                    if not decision.accepted:
+                        continue
+                    if decision.activated:
                         self.status.set(f"已捕获 {self.active_port} boot.，开始接收本次启动日志")
                     self._append_received(stamp, data)
                 elif kind == "error":
@@ -336,7 +362,7 @@ class SerialTerminalWindow:
                 self.status.set(f"控制线设置失败：{exc}")
 
     def arm_boot_gate(self, clear: bool = True) -> None:
-        self.boot_seen = False
+        self.boot_gate.reset()
         if clear:
             self.clear()
         port = self.active_port or self.port_map.get(self.port.get(), "辅助串口")

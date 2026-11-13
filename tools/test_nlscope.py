@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines, load_log
-from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports, is_board_boot_line
-from serial_terminal import (SerialLineAccumulator, SerialSettings, encode_outbound,
-                             format_received, is_board_boot_line)
+from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports
+from serial_terminal import (BootSessionGate, SerialLineAccumulator, SerialSettings,
+                             encode_outbound, format_received, is_board_boot_line)
 
 
 LINES = [
@@ -43,6 +43,39 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(lines, [noisy_prefix + b"boot.\r\n", b"Flash Init Succ!\r\n"])
         self.assertTrue(is_board_boot_line(lines[0].decode("utf-8", errors="replace")))
         self.assertEqual(framer.feed(b" tail\r\n"), [b"partial tail\r\n"])
+
+    def test_serial_line_accumulator_accepts_every_two_way_split(self):
+        payload = bytes.fromhex("71 e8 a5 a5 52 27") + b"boot.\r\nnext\r\n"
+        expected = [bytes.fromhex("71 e8 a5 a5 52 27") + b"boot.\r\n", b"next\r\n"]
+        for split in range(len(payload) + 1):
+            with self.subTest(split=split):
+                framer = SerialLineAccumulator()
+                lines = framer.feed(payload[:split]) + framer.feed(payload[split:])
+                self.assertEqual(lines, expected)
+
+        framer = SerialLineAccumulator()
+        bytewise = []
+        for value in payload:
+            bytewise.extend(framer.feed(bytes((value,))))
+        self.assertEqual(bytewise, expected)
+
+    def test_boot_gate_state_machine_only_reset_rearms_it(self):
+        gate = BootSessionGate()
+        self.assertFalse(gate.admit("old sample").accepted)
+        self.assertEqual(gate.rejected_lines, 1)
+        decision = gate.admit("q襥R'boot.\r\n")
+        self.assertTrue(decision.accepted)
+        self.assertTrue(decision.activated)
+        self.assertTrue(gate.active)
+        self.assertTrue(gate.admit("S,1,10,30,20,3,4\r\n").accepted)
+        self.assertTrue(gate.active)
+        gate.reset()
+        self.assertFalse(gate.active)
+        self.assertEqual(gate.rejected_lines, 0)
+        self.assertFalse(gate.admit("S,2,40,60,20,3,4\r\n").accepted)
+        for false_boundary in ("flashboot.\r\n", "loaderboot.\r\n", "reboot.\r\n"):
+            self.assertFalse(gate.admit(false_boundary).accepted)
+            self.assertFalse(gate.active)
 
     def test_serial_terminal_payload_encoding(self):
         self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")
@@ -89,16 +122,17 @@ class ParserTests(unittest.TestCase):
 
         app = ScopeApp.__new__(ScopeApp)
         app.analysis_console = Console()
-        app.analysis_boot_seen = True
+        app.main_boot_gate = BootSessionGate()
+        app.main_boot_gate.admit("boot.\r\n")
         app._prepare_analysis_console()
-        self.assertTrue(app.analysis_boot_seen)
+        self.assertTrue(app.main_boot_gate.active)
         self.assertTrue(app.analysis_console.begun)
         self.assertFalse(app.analysis_console.waited)
 
         app.analysis_console = Console()
-        app.analysis_boot_seen = False
+        app.main_boot_gate.reset()
         app._prepare_analysis_console()
-        self.assertFalse(app.analysis_boot_seen)
+        self.assertFalse(app.main_boot_gate.active)
         self.assertFalse(app.analysis_console.begun)
         self.assertTrue(app.analysis_console.waited)
 

@@ -15,9 +15,9 @@ from dataclasses import asdict
 from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
-from serial_terminal import SerialLineAccumulator, is_board_boot_line
+from serial_terminal import BootSessionGate, SerialLineAccumulator
 
-APP_VERSION = "M5.0.4-dev"
+APP_VERSION = "M5.0.5-rc1"
 
 M5_PROFILES = {
     "不校验预期实验": None,
@@ -112,8 +112,7 @@ class ScopeApp:
         self.analysis_console = None
         self.main_serial_handle = None
         self.main_serial_lock = threading.Lock()
-        self.analysis_boot_seen = False
-        self.preboot_lines = 0
+        self.main_boot_gate = BootSessionGate()
 
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
@@ -357,8 +356,8 @@ class ScopeApp:
         if self.analysis_console is None or not self.analysis_console.window.winfo_exists():
             return
         # 镜像终端不回填历史，但若主串口已通过本轮boot门，应立即显示后续实时字节。
-        # 绝不能在这里把analysis_boot_seen改回False，否则会把整个主解析链重新锁死。
-        if self.analysis_boot_seen:
+        # 镜像窗口只观察main_boot_gate，绝不能重置它，否则会把整个主解析链重新锁死。
+        if self.main_boot_gate.active:
             self.analysis_console.begin_boot_session()
         else:
             self.analysis_console.wait_for_boot(clear=True)
@@ -613,8 +612,7 @@ class ScopeApp:
             from tkinter import messagebox
             messagebox.showerror("串口已占用", f"{port} 已被辅助串口终端打开。")
             return
-        self.analysis_boot_seen = False
-        self.preboot_lines = 0
+        self.main_boot_gate.reset()
         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
             self.analysis_console.wait_for_boot(clear=True)
         # 每次开始都是独立实验会话：不恢复旧Session、旧时长或旧平台签名。
@@ -713,20 +711,19 @@ class ScopeApp:
                 if isinstance(item, tuple) and item and item[0] == "serial_bytes":
                     received_at, raw = item[1], item[2]
                     line = raw.decode("utf-8", errors="replace")
-                    if not self.analysis_boot_seen:
-                        if not is_board_boot_line(line):
-                            # 复位前数据不进入解析器、Session、窗口或任何导出。
-                            self.preboot_lines += 1
-                            preview = line.strip().replace("\r", "")[-40:]
-                            self.status.set(
-                                f"已打开 {self.active_port}，等待boot. | 已收完整行 {self.preboot_lines} | "
-                                f"末行 {preview!r}"
-                            )
-                            continue
-                        self.analysis_boot_seen = True
+                    decision = self.main_boot_gate.admit(line)
+                    if not decision.accepted:
+                        # 复位前数据不进入解析器、Session、窗口或任何导出。
+                        preview = line.strip().replace("\r", "")[-40:]
+                        self.status.set(
+                            f"已打开 {self.active_port}，等待boot. | "
+                            f"已收完整行 {self.main_boot_gate.rejected_lines} | 末行 {preview!r}"
+                        )
+                        continue
+                    if decision.activated:
                         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
                             self.analysis_console.begin_boot_session()
-                    if (self.analysis_boot_seen and self.analysis_console is not None
+                    if (self.main_boot_gate.active and self.analysis_console is not None
                             and self.analysis_console.window.winfo_exists()):
                         self.analysis_console.feed(received_at, raw)
                 event = self.parser.feed(line, received_at=received_at)

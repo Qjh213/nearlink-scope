@@ -264,6 +264,24 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(event.sample.seq, 7)
         self.assertEqual(event.sample.rtt_us, 20)
 
+    def test_numeric_but_corrupt_sample_is_rejected(self):
+        parser = LineParser()
+        self.assertIsNone(parser.feed("S,1,100,120,999,3,4\n").sample)
+        self.assertIsNone(parser.feed("S,70000,100,120,20,3,4\n").sample)
+        self.assertIsNone(parser.feed("S,1,100,120,20,30,4\n").sample)
+        # uint32 timer wrap remains valid.
+        wrapped = parser.feed("S,2,4294967290,14,20,3,4\n").sample
+        self.assertIsNotNone(wrapped)
+        self.assertEqual(wrapped.rtt_us, 20)
+
+    def test_sample_span_tolerates_out_of_order_file_timestamps(self):
+        session = feed_lines([
+            "[2026-11-10_20:00:02:000]S,1,10,30,20,3,4\n",
+            "[2026-11-10_20:00:00:000]S,2,40,60,20,3,4\n",
+            "[2026-11-10_20:00:01:000]S,3,70,90,20,3,4\n",
+        ])
+        self.assertEqual(session.sample_span_seconds(), 2.0)
+
     def test_live_line_gets_receive_timestamp(self):
         from datetime import datetime
         parser = LineParser()

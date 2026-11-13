@@ -95,6 +95,7 @@ class SerialTerminalWindow:
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.events: queue.Queue = queue.Queue()
         self.stop_event = threading.Event()
+        self.source_id = 0
         self.handle = None
         self.worker = None
         self.port_map: dict[str, str] = {}
@@ -215,10 +216,16 @@ class SerialTerminalWindow:
                 rtscts=settings.flow_control == "HW Ctrl Flow", dsrdtr=False,
             )
             handle.dtr, handle.rts = settings.dtr, settings.rts
+            # 丢弃端口关闭期间由驱动缓存的旧字节，确保“打开后再复位”才可能放行boot门。
+            handle.reset_input_buffer()
             self.arm_boot_gate(clear=True)
             self.handle = handle
             self.stop_event = threading.Event()
-            self.worker = threading.Thread(target=self._reader, args=(handle, self.stop_event), daemon=True)
+            self.source_id += 1
+            source_id = self.source_id
+            self.worker = threading.Thread(
+                target=self._reader, args=(handle, self.stop_event, source_id), daemon=True
+            )
             self.worker.start()
             self.open_button.configure(text="Close Port")
             self.window.title(f"LinkScope · {self.terminal_name} · {settings.port}")
@@ -228,6 +235,8 @@ class SerialTerminalWindow:
 
     def close_port(self) -> None:
         self.stop_event.set()
+        # 立即作废旧worker尚未被UI消费的消息，防止重新打开后被旧boot误放行。
+        self.source_id += 1
         handle, self.handle = self.handle, None
         if handle is not None:
             try:
@@ -238,22 +247,26 @@ class SerialTerminalWindow:
         self.window.title(f"LinkScope · {self.terminal_name}")
         self.status.set(f"串口已关闭；保留 {self.rx_chunks} 个接收块、{self.rx_bytes} bytes")
 
-    def _reader(self, handle, stop_event: threading.Event) -> None:
+    def _reader(self, handle, stop_event: threading.Event, source_id: int) -> None:
         try:
             while not stop_event.is_set():
                 data = handle.readline()
                 if data:
-                    self.events.put(("data", datetime.now(), data))
+                    self.events.put((source_id, "data", datetime.now(), data))
         except Exception as exc:
             if not stop_event.is_set():
-                self.events.put(("error", exc))
+                self.events.put((source_id, "error", exc))
         finally:
-            self.events.put(("closed", None))
+            self.events.put((source_id, "closed", None))
 
     def poll(self) -> None:
+        drained = 0
         try:
-            while True:
-                kind, *payload = self.events.get_nowait()
+            while drained < 4000:
+                source_id, kind, *payload = self.events.get_nowait()
+                drained += 1
+                if source_id != self.source_id:
+                    continue
                 if kind == "data":
                     stamp, data = payload[0], payload[1]
                     if not self.boot_seen:

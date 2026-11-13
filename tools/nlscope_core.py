@@ -145,7 +145,17 @@ class LineParser:
             parts = body.split(",")
             if len(parts) >= 7:
                 try:
-                    event.sample = Sample(*(int(x) for x in parts[1:7]), wall_time=stamp)
+                    values = [int(x) for x in parts[1:7]]
+                    seq, t1_us, t4_us, rtt_us, bproc_us, dlt_us = values
+                    # UART乱码偶尔仍可能组成“全是数字”的一行；用固件输出不变量拒绝伪样本。
+                    valid = (
+                        0 <= seq <= 0xFFFF
+                        and all(0 <= value <= 0xFFFFFFFF for value in values[1:])
+                        and rtt_us == ((t4_us - t1_us) & 0xFFFFFFFF)
+                        and bproc_us <= rtt_us and dlt_us <= rtt_us
+                    )
+                    if valid:
+                        event.sample = Sample(*values, wall_time=stamp)
                 except ValueError:
                     pass
             return event
@@ -330,13 +340,13 @@ class Session:
         stamps = [row.wall_time for row in self.samples if row.wall_time is not None]
         if len(stamps) < 2:
             return 0.0
-        return max(0.0, (stamps[-1] - stamps[0]).total_seconds())
+        return max(0.0, (max(stamps) - min(stamps)).total_seconds())
 
     def monitor_span_seconds(self) -> float:
         stamps = [row.wall_time for row in self.adv_records if row.wall_time is not None]
         if len(stamps) < 2:
             return 0.0
-        return max(0.0, (stamps[-1] - stamps[0]).total_seconds())
+        return max(0.0, (max(stamps) - min(stamps)).total_seconds())
 
     def histogram(self, bins: int = 24) -> list[tuple[float, float, int]]:
         values = [row.rtt_us / 1000.0 for row in self.samples]

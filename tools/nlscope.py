@@ -17,7 +17,7 @@ from pathlib import Path
 from nlscope_core import LineParser, Session, load_log
 from serial_terminal import is_board_boot_line
 
-APP_VERSION = "M5.0.1-dev"
+APP_VERSION = "M5.0.2-dev"
 
 M5_PROFILES = {
     "不校验预期实验": None,
@@ -89,6 +89,7 @@ class ScopeApp:
         self.root = root
         self.root.title(f"NearLink LinkScope · {APP_VERSION}")
         self.root.geometry("1280x820")
+        self.root.protocol("WM_DELETE_WINDOW", self.shutdown)
         self.events: queue.Queue = queue.Queue()
         self.stop_event = threading.Event()
         self.source_id = 0
@@ -365,9 +366,10 @@ class ScopeApp:
         if not terminals:
             terminals = [self.open_aux_terminal()]
         for terminal in terminals:
-            terminal.arm_boot_gate(clear=True)
-            if not terminal.is_open:
-                terminal.open_port()
+            # 每轮实验都重开辅助端口，清除驱动缓存并让旧worker消息彻底失效。
+            if terminal.is_open:
+                terminal.close_port()
+            terminal.open_port()
             if not terminal.is_open:
                 self.status.set(f"全部启动失败：{terminal.terminal_name} 未打开")
                 return
@@ -572,12 +574,16 @@ class ScopeApp:
             self.events.put((source_id, None))
 
     def _file_worker(self, path: Path, source_id: int, stop_event: threading.Event) -> None:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                if stop_event.is_set():
-                    break
-                self.events.put((source_id, line))
-        self.events.put((source_id, None))
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if stop_event.is_set():
+                        break
+                    self.events.put((source_id, line))
+        except Exception as exc:
+            self.events.put((source_id, exc))
+        finally:
+            self.events.put((source_id, None))
 
     def start_serial(self) -> None:
         try:
@@ -631,9 +637,17 @@ class ScopeApp:
                     )
                     handle.dtr = False
                     handle.rts = False
+                    # 不接受端口关闭期间积压的历史字节；本轮必须在打开后重新复位板卡。
+                    handle.reset_input_buffer()
                     break
                 except Exception as exc:
                     last_error = exc
+                    if handle is not None:
+                        try:
+                            handle.close()
+                        except Exception:
+                            pass
+                        handle = None
                     time.sleep(.1)
             if handle is None:
                 raise last_error or RuntimeError("无法打开串口")
@@ -654,11 +668,13 @@ class ScopeApp:
 
     def poll(self) -> None:
         drained = 0
+        redraw_metadata = False
         while drained < 4000:
             try:
                 source_id, item = self.events.get_nowait()
             except queue.Empty:
                 break
+            drained += 1
             if source_id != self.source_id:
                 continue
             if item is None:
@@ -697,6 +713,10 @@ class ScopeApp:
                         self.analysis_console.feed(received_at, raw)
                 event = self.parser.feed(line, received_at=received_at)
                 self._apply_live_gate(event)
+                redraw_metadata = bool(
+                    redraw_metadata or event.signature_changed
+                    or event.counters is not None or event.monitor_counters is not None
+                )
                 if ((event.sample or event.adv) and self.capture_started_monotonic is None and self.strict_live_gate
                         and not self.paused and not self.stop_event.is_set()):
                     self.capture_started_monotonic = time.monotonic()
@@ -716,12 +736,27 @@ class ScopeApp:
                         f"正式采集中 {self.source_label} | 原始行 {len(self.session.raw_lines)} | "
                         f"有效样本 {len(self.session.samples) + len(self.session.adv_records)}"
                     )
-            drained += 1
         if (len(self.session.samples) != self.last_draw_n
-                or len(self.session.adv_records) != self.last_draw_monitor_n):
-            self.draw()
+                or len(self.session.adv_records) != self.last_draw_monitor_n
+                or redraw_metadata):
+            self.draw(force=redraw_metadata)
         self.metric_vars["采集时长"].set(self._format_duration(self._capture_seconds()))
         self.root.after(100, self.poll)
+
+    def shutdown(self) -> None:
+        """Deterministically release every COM handle before the Tk process exits."""
+        self.stop()
+        for terminal in list(self._live_aux_terminals()):
+            terminal.close_port()
+        with self.main_serial_lock:
+            handle = self.main_serial_handle
+            self.main_serial_handle = None
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self.root.destroy()
 
     def export(self) -> None:
         from tkinter import filedialog, messagebox

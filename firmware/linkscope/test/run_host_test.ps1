@@ -9,7 +9,8 @@
         $env:PYTHONPATH = "E:\nearlink-scope\.tools\py"
 #>
 $ErrorActionPreference = 'Stop'
-Set-Location (Split-Path $PSCommandPath -Parent)
+Push-Location (Split-Path $PSCommandPath -Parent)
+try {
 
 $out = (Join-Path (Resolve-Path '..\..\..\.tools\build\host-test') '').TrimEnd('\', '/')
 New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -60,3 +61,6 @@ Invoke-Compile (@($common) + @('-Ishim', '-I..', '../engine.c', '../link_loopbac
 if ($LASTEXITCODE -ne 0) { throw "engine test failed ($LASTEXITCODE)" }
 
 Write-Host 'host tests passed' -ForegroundColor Green
+} finally {
+    Pop-Location
+}

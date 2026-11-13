@@ -64,6 +64,34 @@ class ParserTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             app.send_main_serial(b"x")
 
+    def test_opening_analysis_mirror_never_rearms_main_boot_gate(self):
+        class Window:
+            @staticmethod
+            def winfo_exists():
+                return True
+        class Console:
+            window = Window()
+            begun = waited = False
+            def begin_boot_session(self):
+                self.begun = True
+            def wait_for_boot(self, clear=True):
+                self.waited = True
+
+        app = ScopeApp.__new__(ScopeApp)
+        app.analysis_console = Console()
+        app.analysis_boot_seen = True
+        app._prepare_analysis_console()
+        self.assertTrue(app.analysis_boot_seen)
+        self.assertTrue(app.analysis_console.begun)
+        self.assertFalse(app.analysis_console.waited)
+
+        app.analysis_console = Console()
+        app.analysis_boot_seen = False
+        app._prepare_analysis_console()
+        self.assertFalse(app.analysis_boot_seen)
+        self.assertFalse(app.analysis_console.begun)
+        self.assertTrue(app.analysis_console.waited)
+
     def test_monitor_adv_parse_and_grouped_metrics(self):
         lines = [
             "[2026-11-11_18:00:00:000][linkscope] role=monitor\n",

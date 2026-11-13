@@ -17,7 +17,7 @@ from pathlib import Path
 from nlscope_core import LineParser, Session, load_log
 from serial_terminal import is_board_boot_line
 
-APP_VERSION = "M5.0.2-dev"
+APP_VERSION = "M5.0.3-dev"
 
 M5_PROFILES = {
     "不校验预期实验": None,
@@ -348,10 +348,19 @@ class ScopeApp:
             self.root, self.send_main_serial,
             port_callback=lambda: self.active_port if self.main_serial_handle is not None else "",
         )
-        # 原始终端只显示创建之后、下一次明确boot.开始的实时日志，不回填历史。
-        self.analysis_boot_seen = False
-        self.analysis_console.wait_for_boot(clear=True)
+        self._prepare_analysis_console()
         return self.analysis_console
+
+    def _prepare_analysis_console(self) -> None:
+        """Attach the mirror without ever changing the main COM3 boot gate."""
+        if self.analysis_console is None or not self.analysis_console.window.winfo_exists():
+            return
+        # 镜像终端不回填历史，但若主串口已通过本轮boot门，应立即显示后续实时字节。
+        # 绝不能在这里把analysis_boot_seen改回False，否则会把整个主解析链重新锁死。
+        if self.analysis_boot_seen:
+            self.analysis_console.begin_boot_session()
+        else:
+            self.analysis_console.wait_for_boot(clear=True)
 
     def send_main_serial(self, payload: bytes) -> int:
         with self.main_serial_lock:

@@ -17,7 +17,7 @@ from pathlib import Path
 from nlscope_core import LineParser, Session, load_log
 from serial_terminal import is_board_boot_line
 
-APP_VERSION = "M5.0.0-dev"
+APP_VERSION = "M5.0.1-dev"
 
 M5_PROFILES = {
     "不校验预期实验": None,
@@ -459,6 +459,9 @@ class ScopeApp:
         self.source_id += 1
         self.stop_event = threading.Event()
         self._new_session(source)
+        # 新会话必须立刻反映到UI。否则旧曲线/指标会一直保留到首个新样本到达，
+        # 当boot门尚未放行时看起来就像“全部开始没有清空、程序也没有重启采集”。
+        self.draw(force=True)
         return self.source_id, self.stop_event
 
     def clear(self) -> None:

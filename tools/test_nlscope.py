@@ -224,6 +224,22 @@ class ParserTests(unittest.TestCase):
         self.assertGreaterEqual(app.capture_frozen_seconds, 5.0)
         self.assertIn("时长已保留", app.status.value)
 
+    def test_begin_source_immediately_redraws_empty_session(self):
+        app = ScopeApp.__new__(ScopeApp)
+        app.source_id = 4
+        app.stop_event = threading.Event()
+        app.stop = lambda: None
+        draws = []
+        app.draw = lambda force=False: draws.append(force)
+
+        source_id, stop_event = app._begin_source("COM3")
+
+        self.assertEqual(source_id, 5)
+        self.assertIs(stop_event, app.stop_event)
+        self.assertEqual(app.source_label, "COM3")
+        self.assertEqual(len(app.session.samples), 0)
+        self.assertEqual(draws, [True])
+
     def test_signature_and_metrics(self):
         session = feed_lines(LINES)
         self.assertEqual(session.signature.role, "initiator")

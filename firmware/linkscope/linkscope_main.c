@@ -73,9 +73,59 @@ static ls_engine_t g_engine;
 static uint32_t g_printed;
 static uint8_t g_warned_no_link;
 
+/*
+ * SSAP notification 回调与 LinkScope 任务不在同一个执行上下文。回调若直接
+ * 修改 engine，会与任务中的 tick/pop 并发访问 inflight、统计和样本环。
+ * 因此回调只写入 SPSC 队列，engine 状态统一由 LinkScope 任务独占。
+ */
+#define LS_RX_QUEUE_SIZE  16u
+
+typedef struct {
+    uint8_t data[PROBE_RSP_LEN];
+    uint16_t len;
+    uint32_t t4_us;
+} ls_rx_item_t;
+
+static ls_rx_item_t g_rx_queue[LS_RX_QUEUE_SIZE];
+static volatile uint8_t g_rx_head;
+static volatile uint8_t g_rx_tail;
+static volatile uint32_t g_rx_drop;
+
 void ls_on_frame(const uint8_t *data, uint16_t len, uint32_t t_recv_us)
 {
-    ls_engine_on_frame(&g_engine, data, len, t_recv_us);
+    uint8_t head;
+    uint8_t next;
+    uint16_t i;
+
+    if (data == NULL || len != (uint16_t)PROBE_RSP_LEN) {
+        g_rx_drop++;
+        return;
+    }
+    head = g_rx_head;
+    next = (uint8_t)((head + 1u) % LS_RX_QUEUE_SIZE);
+    if (next == g_rx_tail) {
+        g_rx_drop++;
+        return;
+    }
+    for (i = 0u; i < len; i++) {
+        g_rx_queue[head].data[i] = data[i];
+    }
+    g_rx_queue[head].len = len;
+    g_rx_queue[head].t4_us = t_recv_us;
+    g_rx_head = next; /* 完整复制后再发布给消费者 */
+}
+
+static void rx_drain(void)
+{
+    uint8_t tail;
+    ls_rx_item_t item;
+
+    while (g_rx_tail != g_rx_head) {
+        tail = g_rx_tail;
+        item = g_rx_queue[tail];
+        g_rx_tail = (uint8_t)((tail + 1u) % LS_RX_QUEUE_SIZE);
+        ls_engine_on_frame(&g_engine, item.data, item.len, item.t4_us);
+    }
 }
 
 #endif /* INITIATOR || LOOPBACK（ls_on_frame 只在这两种角色下被调用） */
@@ -142,6 +192,9 @@ static void engine_loop(void)
     ls_engine_init(&g_engine, link, period_us, (uint32_t)CONFIG_LINK_SCOPE_TIMEOUT_MS * 1000u,
         (uint16_t)CONFIG_LINK_SCOPE_PAYLOAD_BYTES, (uint32_t)CONFIG_LINK_SCOPE_CFG_ID);
     ls_engine_set_window(&g_engine, (uint8_t)CONFIG_LINK_SCOPE_WINDOW);
+    g_rx_head = 0u;
+    g_rx_tail = 0u;
+    g_rx_drop = 0u;
 
     osal_printk("%s link=%s cfg=%u payload=%uB rate=%uHz win=%u timeout=%ums\r\n",
         LS_LOG, link->name, (uint32_t)CONFIG_LINK_SCOPE_CFG_ID,
@@ -164,6 +217,8 @@ static void engine_loop(void)
         uint32_t now = ls_now_us();
         uint32_t now_ms = (uint32_t)(uapi_tcxo_get_ms() & 0xFFFFFFFFu);
 
+        /* 先消费到达的响应，再进行超时判断和下一轮发送。 */
+        rx_drain();
         ls_engine_tick(&g_engine, now);
         report_drain();
 

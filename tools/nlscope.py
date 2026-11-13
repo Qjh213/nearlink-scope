@@ -15,9 +15,9 @@ from dataclasses import asdict
 from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
-from serial_terminal import BootSessionGate, SerialLineAccumulator
+from serial_terminal import BootSessionGate, pump_serial_lines
 
-APP_VERSION = "M5.0.5-rc1"
+APP_VERSION = "M5.0.6-rc2"
 
 M5_PROFILES = {
     "不校验预期实验": None,
@@ -491,6 +491,15 @@ class ScopeApp:
     def stop(self) -> None:
         self._freeze_capture()
         self.stop_event.set()
+        # 与辅助串口完全相同：停止时同步关闭句柄，不等待readline超时后异步释放。
+        with self.main_serial_lock:
+            handle = self.main_serial_handle
+            self.main_serial_handle = None
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
         # 立即使旧 worker 已排队但尚未处理的尾部消息失效；否则尾部 S 行会再次启动计时并清零冻结值。
         self.source_id += 1
         self.paused = bool(self.session.raw_lines or self.session.samples or self.session.adv_records)
@@ -624,7 +633,6 @@ class ScopeApp:
 
     def _serial_worker(self, serial_module, port: str, source_id: int, stop_event: threading.Event) -> None:
         handle = None
-        framer = SerialLineAccumulator()
         try:
             # 快速停止再启动时，旧句柄最多还需一个 timeout 才释放；有限重试避免假性占用失败。
             last_error = None
@@ -664,11 +672,10 @@ class ScopeApp:
             with handle:
                 with self.main_serial_lock:
                     self.main_serial_handle = handle
-                while not stop_event.is_set():
-                    raw = handle.readline()
-                    if raw:
-                        for line in framer.feed(raw):
-                            self.events.put((source_id, ("serial_bytes", datetime.now(), line)))
+                pump_serial_lines(
+                    handle, stop_event,
+                    lambda stamp, line: self.events.put((source_id, ("serial_bytes", stamp, line))),
+                )
         except Exception as exc:  # 串口异常必须回到 UI 线程显示
             self.events.put((source_id, exc))
         finally:

@@ -7,7 +7,8 @@ from pathlib import Path
 from nlscope_core import LineParser, feed_lines, load_log
 from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports
 from serial_terminal import (BootSessionGate, SerialLineAccumulator, SerialSettings,
-                             encode_outbound, format_received, is_board_boot_line)
+                             encode_outbound, format_received, is_board_boot_line,
+                             pump_serial_lines)
 
 
 LINES = [
@@ -58,6 +59,20 @@ class ParserTests(unittest.TestCase):
         for value in payload:
             bytewise.extend(framer.feed(bytes((value,))))
         self.assertEqual(bytewise, expected)
+
+    def test_shared_serial_pump_reassembles_lines_for_main_and_aux(self):
+        stop_event = threading.Event()
+        class Handle:
+            def __init__(self):
+                self.chunks = [b"bo", b"ot.\r", b"\nS,1,10,30,", b"20,3,4\r\n"]
+            def readline(self):
+                chunk = self.chunks.pop(0)
+                if not self.chunks:
+                    stop_event.set()
+                return chunk
+        received = []
+        pump_serial_lines(Handle(), stop_event, lambda _stamp, line: received.append(line))
+        self.assertEqual(received, [b"boot.\r\n", b"S,1,10,30,20,3,4\r\n"])
 
     def test_boot_gate_state_machine_only_reset_rearms_it(self):
         gate = BootSessionGate()
@@ -289,12 +304,22 @@ class ParserTests(unittest.TestCase):
         app.session = feed_lines(["S,1,10,30,20,3,4\n"])
         app.paused = False
         app.status = Status()
+        class Handle:
+            def __init__(self):
+                self.closed = False
+            def close(self):
+                self.closed = True
+        handle = Handle()
+        app.main_serial_lock = threading.Lock()
+        app.main_serial_handle = handle
         app.stop()
         self.assertTrue(app.stop_event.is_set())
         self.assertEqual(app.source_id, 8)
         self.assertTrue(app.paused)
         self.assertGreaterEqual(app.capture_frozen_seconds, 5.0)
         self.assertIn("时长已保留", app.status.value)
+        self.assertTrue(handle.closed)
+        self.assertIsNone(app.main_serial_handle)
 
     def test_begin_source_immediately_redraws_empty_session(self):
         app = ScopeApp.__new__(ScopeApp)

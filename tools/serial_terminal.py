@@ -69,6 +69,18 @@ class BootSessionGate:
         return BootGateDecision(False)
 
 
+def pump_serial_lines(handle, stop_event: threading.Event, emit: Callable[[datetime, bytes], None]) -> None:
+    """Shared blocking reader used by both the main COM port and auxiliary terminals."""
+    framer = SerialLineAccumulator()
+    while not stop_event.is_set():
+        chunk = handle.readline()
+        if not chunk:
+            continue
+        stamp = datetime.now()
+        for line in framer.feed(chunk):
+            emit(stamp, line)
+
+
 def is_board_boot_line(line: str) -> bool:
     """识别复位boot边界，并容忍UART起始瞬间附着在boot前的乱码。"""
     text = line.strip().lower()
@@ -298,13 +310,11 @@ class SerialTerminalWindow:
         self.status.set(f"串口已关闭；保留 {self.rx_chunks} 个接收块、{self.rx_bytes} bytes")
 
     def _reader(self, handle, stop_event: threading.Event, source_id: int) -> None:
-        framer = SerialLineAccumulator()
         try:
-            while not stop_event.is_set():
-                data = handle.readline()
-                if data:
-                    for line in framer.feed(data):
-                        self.events.put((source_id, "data", datetime.now(), line))
+            pump_serial_lines(
+                handle, stop_event,
+                lambda stamp, line: self.events.put((source_id, "data", stamp, line)),
+            )
         except Exception as exc:
             if not stop_event.is_set():
                 self.events.put((source_id, "error", exc))

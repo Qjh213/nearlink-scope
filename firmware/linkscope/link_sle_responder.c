@@ -25,6 +25,17 @@
 #define LS_HB_FIRST_PRINTS      6u     /* 前 6 次无条件打印，便于确认"一个 REQ 都没收到" */
 #define LS_DISCONNECT_MSG       "sle_dis_connect"
 
+#define LS_RESP_EVENT_RSP       1u
+#define LS_RESP_EVENT_DISC      2u
+
+typedef struct {
+    uint8_t type;
+    uint16_t seq;
+    uint32_t t1_us;
+    uint32_t t2_us;
+    uint32_t cfg_id;
+} ls_resp_event_t;
+
 static unsigned long g_queue_id;
 static uint8_t g_queue_ok;
 static uint8_t g_rsp_buf[PROBE_RSP_LEN];
@@ -46,10 +57,8 @@ static void resp_read_cb(uint8_t server_id, uint16_t conn_id, ssaps_req_read_cb_
 static void resp_write_cb(uint8_t server_id, uint16_t conn_id, ssaps_req_write_cb_t *req, errcode_t status)
 {
     probe_req_t in;
-    probe_rsp_t out;
-    errcode_t rc;
+    ls_resp_event_t event = {0};
     uint32_t t2;
-    uint32_t t3;
 
     unused(server_id);
     unused(conn_id);
@@ -64,18 +73,39 @@ static void resp_write_cb(uint8_t server_id, uint16_t conn_id, ssaps_req_write_c
         g_dbg_bad++;
         return;
     }
-    out.seq = in.seq;
-    out.t1_us = in.t1_us;
-    out.t2_us = t2;
+    event.type = LS_RESP_EVENT_RSP;
+    event.seq = in.seq;
+    event.t1_us = in.t1_us;
+    event.t2_us = t2;
+    event.cfg_id = in.cfg_id;
+    if (g_queue_ok == 0u ||
+        osal_msg_queue_write_copy(g_queue_id, &event, (unsigned int)sizeof(event), 0) != 0) {
+        g_dbg_bad++;
+    }
+}
+
+/*
+ * 不在 SSAP write callback 内反向调用 ssaps_notify_indicate()。
+ * 部分协议栈版本会接受该调用并返回成功，但后续 notification 不再交付给客户端。
+ * 统一由 LinkScope 响应端任务发送，避免 SSAP service context 重入。
+ */
+static void resp_send(const ls_resp_event_t *event)
+{
+    probe_rsp_t out;
+    errcode_t rc;
+    uint32_t t3;
+
+    out.seq = event->seq;
+    out.t1_us = event->t1_us;
+    out.t2_us = event->t2_us;
     out.t3_us = 0u;
-    out.cfg_id = in.cfg_id;
+    out.cfg_id = event->cfg_id;
     if (probe_build_rsp(g_rsp_buf, (uint16_t)sizeof(g_rsp_buf), &out) != (int)PROBE_RSP_LEN) {
         g_dbg_bad++;
         return;
     }
     t3 = ls_now_us();
     probe_patch_u32(g_rsp_buf, PROBE_OFF_T3, t3);
-
     rc = sle_uart_server_send_report_by_handle(g_rsp_buf, PROBE_RSP_LEN);
     if (rc != ERRCODE_SLE_SUCCESS) {
         g_dbg_err = (int32_t)rc;
@@ -99,17 +129,23 @@ static void resp_hb(uint32_t *last_req, uint32_t *prints)
 
 static void resp_msg_queue(uint8_t *buffer_addr, uint16_t buffer_size)
 {
+    ls_resp_event_t event = {0};
+
+    unused(buffer_addr);
+    unused(buffer_size);
     if (g_queue_ok != 0u) {
-        (void)osal_msg_queue_write_copy(g_queue_id, (void *)buffer_addr, (unsigned int)buffer_size, 0);
+        event.type = LS_RESP_EVENT_DISC;
+        (void)osal_msg_queue_write_copy(g_queue_id, &event, (unsigned int)sizeof(event), 0);
     }
 }
 
 void ls_responder_run(void)
 {
-    uint8_t event[LS_QUEUE_ITEM_SIZE];
+    ls_resp_event_t event;
     uint32_t event_len;
     uint32_t hb_last_req = 0xFFFFFFFFu;
     uint32_t hb_prints = 0u;
+    uint32_t hb_last_us = ls_now_us();
 
     osal_printk("%s [B] responder booting, wait SLE stack %ums\r\n", LS_LOG, LS_START_DELAY_MS);
     osal_msleep(LS_START_DELAY_MS);
@@ -132,14 +168,19 @@ void ls_responder_run(void)
             osal_msleep(1000);
         } else {
             event_len = (uint32_t)sizeof(event);
-            (void)memset(event, 0, sizeof(event));
-            if (osal_msg_queue_read_copy(g_queue_id, (void *)event, &event_len, LS_HB_TICKS) == 0) {
-                if (strncmp((const char *)event, LS_DISCONNECT_MSG, sizeof(LS_DISCONNECT_MSG)) == 0) {
+            (void)memset(&event, 0, sizeof(event));
+            if (osal_msg_queue_read_copy(g_queue_id, (void *)&event, &event_len, LS_HB_TICKS) == 0) {
+                if (event.type == LS_RESP_EVENT_DISC) {
                     osal_printk("%s [B] peer gone, re-announce\r\n", LS_LOG);
                     (void)sle_start_announce(LS_ADV_HANDLE);
+                } else if (event.type == LS_RESP_EVENT_RSP) {
+                    resp_send(&event);
                 }
             }
         }
-        resp_hb(&hb_last_req, &hb_prints);   /* 一个心跳周期（1s）一次，静默后自动闭嘴 */
+        if ((uint32_t)(ls_now_us() - hb_last_us) >= 1000000u) {
+            hb_last_us = ls_now_us();
+            resp_hb(&hb_last_req, &hb_prints); /* 每秒至多一次，避免响应队列唤醒导致刷屏 */
+        }
     }
 }

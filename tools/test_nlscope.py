@@ -6,7 +6,8 @@ from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines, load_log
 from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports, is_board_boot_line
-from serial_terminal import SerialSettings, encode_outbound, format_received, is_board_boot_line
+from serial_terminal import (SerialLineAccumulator, SerialSettings, encode_outbound,
+                             format_received, is_board_boot_line)
 
 
 LINES = [
@@ -33,6 +34,15 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(is_board_boot_line("flashboot."))
         self.assertFalse(is_board_boot_line("loaderboot."))
         self.assertFalse(is_board_boot_line("reboot."))
+
+    def test_serial_line_accumulator_reassembles_timeout_split_boot(self):
+        framer = SerialLineAccumulator()
+        noisy_prefix = bytes.fromhex("71 e8 a5 a5 52 27")
+        self.assertEqual(framer.feed(noisy_prefix + b"boo"), [])
+        lines = framer.feed(b"t.\r\nFlash Init Succ!\r\npartial")
+        self.assertEqual(lines, [noisy_prefix + b"boot.\r\n", b"Flash Init Succ!\r\n"])
+        self.assertTrue(is_board_boot_line(lines[0].decode("utf-8", errors="replace")))
+        self.assertEqual(framer.feed(b" tail\r\n"), [b"partial tail\r\n"])
 
     def test_serial_terminal_payload_encoding(self):
         self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")

@@ -19,6 +19,30 @@ PARITIES = ("None", "Odd", "Even", "Mark", "Space")
 FLOW_CONTROLS = ("No Ctrl Flow", "SW Ctrl Flow", "HW Ctrl Flow")
 
 
+class SerialLineAccumulator:
+    """Turn timeout-split serial chunks into complete newline-terminated records."""
+
+    def __init__(self, max_pending: int = 65536) -> None:
+        self.pending = bytearray()
+        self.max_pending = max_pending
+        self.dropped_bytes = 0
+
+    def feed(self, chunk: bytes) -> list[bytes]:
+        self.pending.extend(chunk)
+        lines = []
+        while True:
+            newline = self.pending.find(b"\n")
+            if newline < 0:
+                break
+            lines.append(bytes(self.pending[:newline + 1]))
+            del self.pending[:newline + 1]
+        if len(self.pending) > self.max_pending:
+            excess = len(self.pending) - self.max_pending
+            del self.pending[:excess]
+            self.dropped_bytes += excess
+        return lines
+
+
 def is_board_boot_line(line: str) -> bool:
     """识别复位boot边界，并容忍UART起始瞬间附着在boot前的乱码。"""
     text = line.strip().lower()
@@ -248,11 +272,13 @@ class SerialTerminalWindow:
         self.status.set(f"串口已关闭；保留 {self.rx_chunks} 个接收块、{self.rx_bytes} bytes")
 
     def _reader(self, handle, stop_event: threading.Event, source_id: int) -> None:
+        framer = SerialLineAccumulator()
         try:
             while not stop_event.is_set():
                 data = handle.readline()
                 if data:
-                    self.events.put((source_id, "data", datetime.now(), data))
+                    for line in framer.feed(data):
+                        self.events.put((source_id, "data", datetime.now(), line))
         except Exception as exc:
             if not stop_event.is_set():
                 self.events.put((source_id, "error", exc))

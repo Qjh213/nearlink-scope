@@ -15,9 +15,9 @@ from dataclasses import asdict
 from pathlib import Path
 
 from nlscope_core import LineParser, Session, load_log
-from serial_terminal import is_board_boot_line
+from serial_terminal import SerialLineAccumulator, is_board_boot_line
 
-APP_VERSION = "M5.0.3-dev"
+APP_VERSION = "M5.0.4-dev"
 
 M5_PROFILES = {
     "不校验预期实验": None,
@@ -113,6 +113,7 @@ class ScopeApp:
         self.main_serial_handle = None
         self.main_serial_lock = threading.Lock()
         self.analysis_boot_seen = False
+        self.preboot_lines = 0
 
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
@@ -613,6 +614,7 @@ class ScopeApp:
             messagebox.showerror("串口已占用", f"{port} 已被辅助串口终端打开。")
             return
         self.analysis_boot_seen = False
+        self.preboot_lines = 0
         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
             self.analysis_console.wait_for_boot(clear=True)
         # 每次开始都是独立实验会话：不恢复旧Session、旧时长或旧平台签名。
@@ -624,6 +626,7 @@ class ScopeApp:
 
     def _serial_worker(self, serial_module, port: str, source_id: int, stop_event: threading.Event) -> None:
         handle = None
+        framer = SerialLineAccumulator()
         try:
             # 快速停止再启动时，旧句柄最多还需一个 timeout 才释放；有限重试避免假性占用失败。
             last_error = None
@@ -666,7 +669,8 @@ class ScopeApp:
                 while not stop_event.is_set():
                     raw = handle.readline()
                     if raw:
-                        self.events.put((source_id, ("serial_bytes", datetime.now(), raw)))
+                        for line in framer.feed(raw):
+                            self.events.put((source_id, ("serial_bytes", datetime.now(), line)))
         except Exception as exc:  # 串口异常必须回到 UI 线程显示
             self.events.put((source_id, exc))
         finally:
@@ -712,7 +716,12 @@ class ScopeApp:
                     if not self.analysis_boot_seen:
                         if not is_board_boot_line(line):
                             # 复位前数据不进入解析器、Session、窗口或任何导出。
-                            self.status.set(f"已打开 {self.active_port}，等待板卡复位和boot.启动边界")
+                            self.preboot_lines += 1
+                            preview = line.strip().replace("\r", "")[-40:]
+                            self.status.set(
+                                f"已打开 {self.active_port}，等待boot. | 已收完整行 {self.preboot_lines} | "
+                                f"末行 {preview!r}"
+                            )
                             continue
                         self.analysis_boot_seen = True
                         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():

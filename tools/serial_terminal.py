@@ -20,8 +20,12 @@ FLOW_CONTROLS = ("No Ctrl Flow", "SW Ctrl Flow", "HW Ctrl Flow")
 
 
 def is_board_boot_line(line: str) -> bool:
-    """只识别独立boot.启动行，排除Flashboot等包含boot的普通打印。"""
-    return re.search(r"(?:^|\]|[^A-Za-z])boot\.\s*$", line.strip(), re.IGNORECASE) is not None
+    """识别复位boot边界，并容忍UART起始瞬间附着在boot前的乱码。"""
+    text = line.strip().lower()
+    if re.search(r"boot\.\s*$", text) is None:
+        return False
+    # 这些是启动链中的普通文本或控制命令，不是APP重新启动边界。
+    return re.search(r"(?:flashboot|loaderboot|reboot)\.\s*$", text) is None
 
 
 @dataclass(frozen=True)

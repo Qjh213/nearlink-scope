@@ -27,8 +27,12 @@ class ParserTests(unittest.TestCase):
     def test_analysis_history_starts_at_explicit_board_boot(self):
         self.assertTrue(is_board_boot_line("boot.\r\n"))
         self.assertTrue(is_board_boot_line("[2026-11-12_10:00:00:000]boot."))
+        self.assertTrue(is_board_boot_line("\x10oboot."))
+        self.assertTrue(is_board_boot_line("q襥R'boot."))
         self.assertFalse(is_board_boot_line("Flashboot Uart Init Succ!"))
         self.assertFalse(is_board_boot_line("flashboot."))
+        self.assertFalse(is_board_boot_line("loaderboot."))
+        self.assertFalse(is_board_boot_line("reboot."))
 
     def test_serial_terminal_payload_encoding(self):
         self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")

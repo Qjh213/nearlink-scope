@@ -20,7 +20,6 @@
 #define LS_ADV_HANDLE           1u
 #define LS_START_DELAY_MS       2000u
 #define LS_QUEUE_LEN            5u
-#define LS_QUEUE_ITEM_SIZE      32u
 #define LS_HB_TICKS             50u    /* 心跳间隔：50 tick × 20ms = 1s */
 #define LS_HB_FIRST_PRINTS      6u     /* 前 6 次无条件打印，便于确认"一个 REQ 都没收到" */
 #define LS_DISCONNECT_MSG       "sle_dis_connect"
@@ -35,6 +34,8 @@ typedef struct {
     uint32_t t2_us;
     uint32_t cfg_id;
 } ls_resp_event_t;
+
+#define LS_QUEUE_ITEM_SIZE      ((unsigned long)sizeof(ls_resp_event_t))
 
 static unsigned long g_queue_id;
 static uint8_t g_queue_ok;
@@ -143,6 +144,7 @@ void ls_responder_run(void)
 {
     ls_resp_event_t event;
     uint32_t event_len;
+    int32_t queue_rc;
     uint32_t hb_last_req = 0xFFFFFFFFu;
     uint32_t hb_prints = 0u;
     uint32_t hb_last_us = ls_now_us();
@@ -169,13 +171,17 @@ void ls_responder_run(void)
         } else {
             event_len = (uint32_t)sizeof(event);
             (void)memset(&event, 0, sizeof(event));
-            if (osal_msg_queue_read_copy(g_queue_id, (void *)&event, &event_len, LS_HB_TICKS) == 0) {
+            queue_rc = osal_msg_queue_read_copy(g_queue_id, (void *)&event, &event_len, LS_HB_TICKS);
+            if (queue_rc == 0) {
                 if (event.type == LS_RESP_EVENT_DISC) {
                     osal_printk("%s [B] peer gone, re-announce\r\n", LS_LOG);
                     (void)sle_start_announce(LS_ADV_HANDLE);
                 } else if (event.type == LS_RESP_EVENT_RSP) {
                     resp_send(&event);
                 }
+            } else {
+                /* 超时和参数错误都必须让出CPU，避免错误路径形成忙循环并触发NMI看门狗。 */
+                osal_msleep(1);
             }
         }
         if ((uint32_t)(ls_now_us() - hb_last_us) >= 1000000u) {

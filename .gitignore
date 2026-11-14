@@ -14,6 +14,15 @@ __pycache__/
 .tools/
 artifacts/firmware/*.fwpkg
 
+# 实验证据：单轮日志与导出不入库（仓库只保留 manifest.csv 与矩阵进度表）
+# 逆向分析文档属于知识材料，保留可入库
+artifacts/logs/M5/*/
+!artifacts/logs/M5/逆向QCOM/
+
+# 编辑备份
+*.bak
+*.bak.*
+
 # editors
 .vscode/
 .idea/

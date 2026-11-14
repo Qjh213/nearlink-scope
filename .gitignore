@@ -23,6 +23,10 @@ artifacts/logs/M5/*/
 *.bak
 *.bak.*
 
+# 一次性会话交接文档（不入库，内容已沉淀到 docs/项目日志.md 与 M5 矩阵）
+docs/DeepSeek交接-*.md
+docs/会话交接-*.md
+
 # editors
 .vscode/
 .idea/

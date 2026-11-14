@@ -5,11 +5,18 @@ from __future__ import annotations
 
 import queue
 import re
+import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+from serial_reader import LineSplitter
 
 
 BAUDRATES = (4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600)
@@ -19,28 +26,8 @@ PARITIES = ("None", "Odd", "Even", "Mark", "Space")
 FLOW_CONTROLS = ("No Ctrl Flow", "SW Ctrl Flow", "HW Ctrl Flow")
 
 
-class SerialLineAccumulator:
-    """Turn timeout-split serial chunks into complete newline-terminated records."""
-
-    def __init__(self, max_pending: int = 65536) -> None:
-        self.pending = bytearray()
-        self.max_pending = max_pending
-        self.dropped_bytes = 0
-
-    def feed(self, chunk: bytes) -> list[bytes]:
-        self.pending.extend(chunk)
-        lines = []
-        while True:
-            newline = self.pending.find(b"\n")
-            if newline < 0:
-                break
-            lines.append(bytes(self.pending[:newline + 1]))
-            del self.pending[:newline + 1]
-        if len(self.pending) > self.max_pending:
-            excess = len(self.pending) - self.max_pending
-            del self.pending[:excess]
-            self.dropped_bytes += excess
-        return lines
+class SerialLineAccumulator(LineSplitter):
+    """Backward-compatible thin name for the repository's single byte framer."""
 
 
 @dataclass
@@ -69,16 +56,22 @@ class BootSessionGate:
         return BootGateDecision(False)
 
 
-def pump_serial_lines(handle, stop_event: threading.Event, emit: Callable[[datetime, bytes], None]) -> None:
-    """Shared blocking reader used by both the main COM port and auxiliary terminals."""
+def pump_serial_lines(handle, stop_event: threading.Event, emit: Callable[[datetime, bytes], None],
+                      deadline: float | None = None) -> None:
+    """Shared byte-block reader used by both main and auxiliary raw-log branches."""
     framer = SerialLineAccumulator()
-    while not stop_event.is_set():
-        chunk = handle.readline()
+    while not stop_event.is_set() and (deadline is None or time.monotonic() < deadline):
+        chunk = handle.read(256)
         if not chunk:
+            tail = framer.flush_idle()
+            if tail is not None:
+                emit(datetime.now(), tail)
             continue
-        stamp = datetime.now()
         for line in framer.feed(chunk):
-            emit(stamp, line)
+            emit(datetime.now(), line)
+    tail = framer.flush()
+    if tail is not None:
+        emit(datetime.now(), tail)
 
 
 def is_board_boot_line(line: str) -> bool:
@@ -164,6 +157,7 @@ class SerialTerminalWindow:
         self.rx_bytes = 0
         self.rx_chunks = 0
         self.log_lines: list[str] = []
+        # boot门只用于标记板卡启动边界，绝不能阻止原始终端显示或保存串口字节。
         self.boot_gate = BootSessionGate()
 
         settings = ttk.LabelFrame(self.window, text="COM Port Setting", padding=8)
@@ -278,7 +272,7 @@ class SerialTerminalWindow:
                 rtscts=settings.flow_control == "HW Ctrl Flow", dsrdtr=False,
             )
             handle.dtr, handle.rts = settings.dtr, settings.rts
-            # 丢弃端口关闭期间由驱动缓存的旧字节，确保“打开后再复位”才可能放行boot门。
+            # 丢弃端口关闭期间由驱动缓存的旧字节；打开后的所有完整行都立即显示。
             handle.reset_input_buffer()
             self.arm_boot_gate(clear=True)
             self.handle = handle
@@ -291,7 +285,7 @@ class SerialTerminalWindow:
             self.worker.start()
             self.open_button.configure(text="Close Port")
             self.window.title(f"LinkScope · {self.terminal_name} · {settings.port}")
-            self.status.set(f"已打开 {settings.port} @ {settings.baudrate}；等待板卡复位")
+            self.status.set(f"已打开 {settings.port} @ {settings.baudrate}；正在显示全部原始日志")
         except Exception as exc:
             messagebox.showerror("打开串口失败", str(exc))
 
@@ -332,10 +326,8 @@ class SerialTerminalWindow:
                 if kind == "data":
                     stamp, data = payload[0], payload[1]
                     decision = self.boot_gate.admit(data.decode("utf-8", errors="replace"))
-                    if not decision.accepted:
-                        continue
                     if decision.activated:
-                        self.status.set(f"已捕获 {self.active_port} boot.，开始接收本次启动日志")
+                        self.status.set(f"已捕获 {self.active_port} boot.；原始日志持续显示")
                     self._append_received(stamp, data)
                 elif kind == "error":
                     self.status.set(f"串口错误：{payload[0]}")
@@ -376,7 +368,7 @@ class SerialTerminalWindow:
         if clear:
             self.clear()
         port = self.active_port or self.port_map.get(self.port.get(), "辅助串口")
-        self.status.set(f"等待 {port} 板卡复位：捕获boot.后开始记录")
+        self.status.set(f"{port} 原始终端已就绪：所有日志立即显示，boot.仅标记会话边界")
 
     def send(self) -> None:
         from tkinter import messagebox
@@ -471,11 +463,10 @@ class AnalysisSerialConsoleWindow:
     def wait_for_boot(self, clear: bool = True) -> None:
         if clear:
             self.clear()
-        self.status.set("等待COM3板卡复位：捕获boot.后开始显示")
+        self.status.set("等待主分析串口；打开后立即显示全部原始日志")
 
     def begin_boot_session(self) -> None:
-        self.clear()
-        self.status.set("已捕获COM3 boot.，开始接收本次启动日志")
+        self.status.set("已捕获COM3 boot.；原始日志持续显示")
 
     def feed(self, stamp: datetime, data: bytes) -> None:
         if not self.window.winfo_exists():

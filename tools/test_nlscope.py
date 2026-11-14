@@ -1,12 +1,15 @@
+import queue
 import tempfile
 import time
 import threading
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 from nlscope_core import LineParser, feed_lines, load_log
 from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports
-from serial_terminal import (BootSessionGate, SerialLineAccumulator, SerialSettings,
+import serial_terminal
+from serial_terminal import (BootSessionGate, SerialLineAccumulator, SerialSettings, SerialTerminalWindow,
                              encode_outbound, format_received, is_board_boot_line,
                              pump_serial_lines)
 
@@ -41,38 +44,77 @@ class ParserTests(unittest.TestCase):
         noisy_prefix = bytes.fromhex("71 e8 a5 a5 52 27")
         self.assertEqual(framer.feed(noisy_prefix + b"boo"), [])
         lines = framer.feed(b"t.\r\nFlash Init Succ!\r\npartial")
-        self.assertEqual(lines, [noisy_prefix + b"boot.\r\n", b"Flash Init Succ!\r\n"])
+        self.assertEqual(lines, [noisy_prefix + b"boot.\r", b"\nFlash Init Succ!\r"])
         self.assertTrue(is_board_boot_line(lines[0].decode("utf-8", errors="replace")))
-        self.assertEqual(framer.feed(b" tail\r\n"), [b"partial tail\r\n"])
+        self.assertEqual(framer.feed(b" tail\r\n"), [b"\npartial tail\r"])
 
     def test_serial_line_accumulator_accepts_every_two_way_split(self):
         payload = bytes.fromhex("71 e8 a5 a5 52 27") + b"boot.\r\nnext\r\n"
-        expected = [bytes.fromhex("71 e8 a5 a5 52 27") + b"boot.\r\n", b"next\r\n"]
+        expected = [bytes.fromhex("71 e8 a5 a5 52 27") + b"boot.\r", b"\nnext\r"]
         for split in range(len(payload) + 1):
             with self.subTest(split=split):
                 framer = SerialLineAccumulator()
                 lines = framer.feed(payload[:split]) + framer.feed(payload[split:])
                 self.assertEqual(lines, expected)
+                self.assertEqual(framer.pending, b"\n")
 
         framer = SerialLineAccumulator()
         bytewise = []
         for value in payload:
             bytewise.extend(framer.feed(bytes((value,))))
         self.assertEqual(bytewise, expected)
+        self.assertEqual(framer.pending, b"\n")
 
     def test_shared_serial_pump_reassembles_lines_for_main_and_aux(self):
         stop_event = threading.Event()
         class Handle:
             def __init__(self):
                 self.chunks = [b"bo", b"ot.\r", b"\nS,1,10,30,", b"20,3,4\r\n"]
-            def readline(self):
+            def read(self, _size):
                 chunk = self.chunks.pop(0)
                 if not self.chunks:
                     stop_event.set()
                 return chunk
         received = []
         pump_serial_lines(Handle(), stop_event, lambda _stamp, line: received.append(line))
-        self.assertEqual(received, [b"boot.\r\n", b"S,1,10,30,20,3,4\r\n"])
+        self.assertEqual(received, [b"boot.\r", b"\nS,1,10,30,20,3,4\r", b"\n"])
+
+    def test_shared_serial_pump_timestamps_each_line_separately(self):
+        stop_event = threading.Event()
+        class Handle:
+            def read(self, _size):
+                stop_event.set()
+                return b"a\rb\r"
+        class FakeDateTime:
+            calls = 0
+            @classmethod
+            def now(cls):
+                cls.calls += 1
+                return cls.calls
+
+        received = []
+        original_datetime = serial_terminal.datetime
+        try:
+            serial_terminal.datetime = FakeDateTime
+            pump_serial_lines(Handle(), stop_event, lambda stamp, line: received.append((stamp, line)))
+        finally:
+            serial_terminal.datetime = original_datetime
+        self.assertEqual(received, [(1, b"a\r"), (2, b"b\r")])
+
+    def test_serial_line_accumulator_flushes_idle_tail_without_loss(self):
+        framer = SerialLineAccumulator(idle_ms=300)
+        self.assertEqual(framer.feed(b"partial diagnostic"), [])
+        self.assertIsNone(framer.flush_idle(framer.last_byte_at + 0.299))
+        self.assertEqual(framer.flush_idle(framer.last_byte_at + 0.300), b"partial diagnostic")
+        self.assertEqual(framer.dropped_bytes, 0)
+
+    def test_serial_line_accumulator_surfaces_oversized_unterminated_burst(self):
+        framer = SerialLineAccumulator(max_pending=64)
+        payload = b"x" * 65
+        self.assertEqual(framer.feed(payload), [payload])
+        self.assertEqual(framer.pending, bytearray())
+        self.assertEqual(framer.dropped_bytes, 0)
+        self.assertEqual(framer.forced_flushes, 1)
 
     def test_boot_gate_state_machine_only_reset_rearms_it(self):
         gate = BootSessionGate()
@@ -91,6 +133,35 @@ class ParserTests(unittest.TestCase):
         for false_boundary in ("flashboot.\r\n", "loaderboot.\r\n", "reboot.\r\n"):
             self.assertFalse(gate.admit(false_boundary).accepted)
             self.assertFalse(gate.active)
+
+    def test_aux_terminal_displays_lines_before_boot(self):
+        class Window:
+            @staticmethod
+            def winfo_exists():
+                return True
+            @staticmethod
+            def after(_delay, _callback):
+                return None
+        class Status:
+            def set(self, _value):
+                return None
+
+        terminal = SerialTerminalWindow.__new__(SerialTerminalWindow)
+        terminal.events = queue.Queue()
+        terminal.source_id = 1
+        terminal.boot_gate = BootSessionGate()
+        terminal.window = Window()
+        terminal.status = Status()
+        terminal.open_button = None
+        terminal.handle = None
+        received = []
+        terminal._append_received = lambda stamp, data: received.append((stamp, data))
+        terminal.events.put((1, "data", datetime.now(), b"pre-boot diagnostic\r\n"))
+
+        terminal.poll()
+
+        self.assertEqual(received[0][1], b"pre-boot diagnostic\r\n")
+        self.assertFalse(terminal.boot_gate.active)
 
     def test_serial_terminal_payload_encoding(self):
         self.assertEqual(encode_outbound("AT", False, True), b"AT\r\n")
@@ -122,7 +193,7 @@ class ParserTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             app.send_main_serial(b"x")
 
-    def test_opening_analysis_mirror_never_rearms_main_boot_gate(self):
+    def test_opening_analysis_mirror_is_raw_and_never_rearms_main_boot_gate(self):
         class Window:
             @staticmethod
             def winfo_exists():
@@ -141,8 +212,8 @@ class ParserTests(unittest.TestCase):
         app.main_boot_gate.admit("boot.\r\n")
         app._prepare_analysis_console()
         self.assertTrue(app.main_boot_gate.active)
-        self.assertTrue(app.analysis_console.begun)
-        self.assertFalse(app.analysis_console.waited)
+        self.assertFalse(app.analysis_console.begun)
+        self.assertTrue(app.analysis_console.waited)
 
         app.analysis_console = Console()
         app.main_boot_gate.reset()

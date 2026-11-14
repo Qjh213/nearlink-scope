@@ -17,7 +17,7 @@ from pathlib import Path
 from nlscope_core import LineParser, Session, load_log
 from serial_terminal import BootSessionGate, pump_serial_lines
 
-APP_VERSION = "M5.0.6-rc2"
+APP_VERSION = "M5.0.9-rc5"
 
 M5_PROFILES = {
     "不校验预期实验": None,
@@ -352,15 +352,11 @@ class ScopeApp:
         return self.analysis_console
 
     def _prepare_analysis_console(self) -> None:
-        """Attach the mirror without ever changing the main COM3 boot gate."""
+        """Attach the raw mirror without ever changing or depending on the COM3 boot gate."""
         if self.analysis_console is None or not self.analysis_console.window.winfo_exists():
             return
-        # 镜像终端不回填历史，但若主串口已通过本轮boot门，应立即显示后续实时字节。
-        # 镜像窗口只观察main_boot_gate，绝不能重置它，否则会把整个主解析链重新锁死。
-        if self.main_boot_gate.active:
-            self.analysis_console.begin_boot_session()
-        else:
-            self.analysis_console.wait_for_boot(clear=True)
+        # 镜像终端不回填历史，但从打开窗口起无条件显示后续字节；boot门只约束主解析/统计链。
+        self.analysis_console.wait_for_boot(clear=True)
 
     def send_main_serial(self, payload: bytes) -> int:
         with self.main_serial_lock:
@@ -718,9 +714,12 @@ class ScopeApp:
                 if isinstance(item, tuple) and item and item[0] == "serial_bytes":
                     received_at, raw = item[1], item[2]
                     line = raw.decode("utf-8", errors="replace")
+                    # QCOM式原始镜像：先无条件显示，再由boot门决定是否进入解析与统计链。
+                    if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
+                        self.analysis_console.feed(received_at, raw)
                     decision = self.main_boot_gate.admit(line)
                     if not decision.accepted:
-                        # 复位前数据不进入解析器、Session、窗口或任何导出。
+                        # 复位前数据不进入解析器、Session或样本导出，但始终保留在原始镜像窗口。
                         preview = line.strip().replace("\r", "")[-40:]
                         self.status.set(
                             f"已打开 {self.active_port}，等待boot. | "
@@ -730,9 +729,6 @@ class ScopeApp:
                     if decision.activated:
                         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
                             self.analysis_console.begin_boot_session()
-                    if (self.main_boot_gate.active and self.analysis_console is not None
-                            and self.analysis_console.window.winfo_exists()):
-                        self.analysis_console.feed(received_at, raw)
                 event = self.parser.feed(line, received_at=received_at)
                 self._apply_live_gate(event)
                 redraw_metadata = bool(
@@ -1012,14 +1008,18 @@ def main() -> int:
             ) as handle:
                 handle.dtr = False
                 handle.rts = False
-                while time.monotonic() < deadline:
-                    raw = handle.readline()
-                    if raw:
-                        event = line_parser.feed(raw.decode("utf-8", errors="replace"), received_at=datetime.now())
-                        if event.sample and not line_parser.signature.measurement_ready:
-                            pre_ready_samples += 1
-                            event.sample = None
-                        session.add(event, line_parser.signature)
+                handle.reset_input_buffer()
+                stop_event = threading.Event()
+
+                def accept_line(received_at, raw):
+                    nonlocal pre_ready_samples
+                    event = line_parser.feed(raw.decode("utf-8", errors="replace"), received_at=received_at)
+                    if event.sample and not line_parser.signature.measurement_ready:
+                        pre_ready_samples += 1
+                        event.sample = None
+                    session.add(event, line_parser.signature)
+
+                pump_serial_lines(handle, stop_event, accept_line, deadline=deadline)
         except Exception as exc:
             print(f"串口采集失败：{exc}", file=sys.stderr)
             return 4

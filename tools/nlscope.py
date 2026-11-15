@@ -307,6 +307,44 @@ def reproduce_run(run_dir: Path, out_dir: Path | None = None) -> int:
     return 0 if (session.samples or session.adv_records) else 2
 
 
+class FirmwareRegistry:
+    """固件登记的"是否已用过"判断。
+
+    `provided` 只说明本进程登记过某个路径；但同一份登记连续导出两轮，第二轮并不能
+    证明板子上还是那个包。这里记下每次选择的时间戳，并在导出后把该次选择标记为
+    "已消费"：下一轮若没重新选择，导出的 `inherited` 才为真，由自检给出 warn。
+    """
+
+    def __init__(self) -> None:
+        self._selected: dict[str, tuple[datetime, int]] = {}
+        self._consumed: set[tuple[str, str, int]] = set()
+        self._serial = 0
+
+    def select(self, role: str, now: datetime | None = None) -> None:
+        self._serial += 1
+        self._selected[role] = (now or datetime.now(), self._serial)
+
+    def selected_at(self, role: str) -> datetime | None:
+        entry = self._selected.get(role)
+        return entry[0] if entry else None
+
+    def identity(self, role: str, path: str) -> dict:
+        item = file_identity(path)
+        stamp = self.selected_at(role)
+        item["selected_at"] = stamp.isoformat(timespec="seconds") if stamp else None
+        item["inherited"] = bool(path) and self._key(role, path) in self._consumed
+        return item
+
+    def consume(self, role: str, path: str) -> None:
+        if path:
+            self._consumed.add(self._key(role, path))
+
+    def _key(self, role: str, path: str) -> tuple[str, str, int]:
+        entry = self._selected.get(role)
+        # 序号进 key：同一个路径重新选一次就算"重新确认"，不再算继承。
+        return (role, path, entry[1] if entry else 0)
+
+
 class ScopeApp:
     def __init__(self, root) -> None:
         import tkinter as tk
@@ -388,7 +426,7 @@ class ScopeApp:
         self.responder_firmware = tk.StringVar(value="")
         # 固件登记时间与会话起点用于判断"本轮是否真的重新确认过固件"：
         # 只在本进程启动时创建一次，新会话不清空（否则每轮都要点两次）。
-        self.firmware_selected_at: dict[str, datetime] = {}
+        self.firmware_registry = FirmwareRegistry()
         self.session_started_at: datetime | None = None
         ttk.Button(experiment, text="发起端固件", command=lambda: self.select_firmware(
             self.initiator_firmware)).pack(side="left", padx=(8, 2))
@@ -733,6 +771,7 @@ class ScopeApp:
         with run_path.open("x", encoding="utf-8") as handle:
             json.dump(run_payload, handle, ensure_ascii=False, indent=2)
         paths.extend((*auxiliary_paths, run_path))
+        self._consume_firmware()
         messagebox.showinfo("联合导出完成", "\n".join(str(path) for path in paths)
                             + "\n\n" + format_evidence(checks))
 
@@ -888,22 +927,25 @@ class ScopeApp:
             messagebox.showerror("导入实验规格失败", str(exc))
 
     def _firmware_identity(self) -> dict:
-        """登记路径 + 哈希；在本轮开始前选的路径标 inherited，供自检提示"没重新确认"。
+        """登记路径 + 哈希；被上一次导出用过的路径标 inherited，供自检提示"没重新确认"。
 
-        `provided` 只说明"本进程某轮登记过"，不等于"这一轮用的就是它"；跨会话继承在
-        重新烧录后并不可信，所以导出时把时间关系一并写进 run.json，由自检给 warn。
+        `provided` 只说明"本进程某轮登记过"，不等于"这一轮用的就是它"：同一份登记连
+        续导出两轮，第二轮并不能证明板子上还是那个包。判断依据是"这次选择是否已经
+        被某次导出消费过"，而不是"选择时间是否早于会话开始"——先选固件再开始采集是
+        正常操作顺序，不该因此报警。
         """
         identity = {}
         for role, variable in (("initiator", getattr(self, "initiator_firmware", None)),
                                ("responder", getattr(self, "responder_firmware", None))):
             path = variable.get() if variable is not None and hasattr(variable, "get") else ""
-            item = file_identity(path)
-            selected = self.firmware_selected_at.get(role)
-            started = self.session_started_at
-            item["selected_at"] = selected.isoformat(timespec="seconds") if selected else None
-            item["inherited"] = bool(selected and started and selected < started)
-            identity[role] = item
+            identity[role] = self.firmware_registry.identity(role, path)
         return identity
+
+    def _consume_firmware(self) -> None:
+        for role, variable in (("initiator", getattr(self, "initiator_firmware", None)),
+                               ("responder", getattr(self, "responder_firmware", None))):
+            path = variable.get() if variable is not None and hasattr(variable, "get") else ""
+            self.firmware_registry.consume(role, path)
 
     def select_firmware(self, variable) -> None:
         from tkinter import filedialog
@@ -915,9 +957,9 @@ class ScopeApp:
             variable.set(path)
             role = ("initiator" if variable is getattr(self, "initiator_firmware", None)
                     else "responder")
-            stamps = getattr(self, "firmware_selected_at", None)
+            stamps = getattr(self, "firmware_registry", None)
             if stamps is not None:
-                stamps[role] = datetime.now()
+                stamps.select(role)
             self.status.set(f"已登记固件：{Path(path).name}；联合导出将计算 SHA-256")
 
     def open_log(self) -> None:
@@ -1246,6 +1288,7 @@ class ScopeApp:
             messagebox.showerror("拒绝覆盖", str(exc))
             return
         checks = evaluate_evidence(session_evidence_record(self.session), count_csv_rows(paths[1]))
+        self._consume_firmware()
         self.wizard.see_export(checks.get("status", "warn"))
         self._refresh_wizard()
         messagebox.showinfo("导出完成", "\n".join(str(p) for p in paths) + "\n\n" + format_evidence(checks))

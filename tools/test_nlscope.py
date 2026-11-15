@@ -13,8 +13,8 @@ from unittest import mock
 from nlscope_core import (LineParser, PlatformSignature, Session, count_csv_rows, evaluate_evidence,
                           feed_lines, format_evidence, format_preflight, load_csv, load_log,
                           preflight_items)
-from nlscope import (M5_PROFILES, ScopeApp, discover_serial_ports, export_cli, file_identity,
-                     reproduce_markdown, reproduce_run, repository_identity)
+from nlscope import (FirmwareRegistry, M5_PROFILES, ScopeApp, discover_serial_ports, export_cli,
+                     file_identity, reproduce_markdown, reproduce_run, repository_identity)
 from experiment_specs import ExperimentSpec, expected_mapping, load_specs
 from wizard import ExperimentWizard
 from adapters import AdapterSpec, format_import_report, import_csv
@@ -1179,6 +1179,41 @@ class AdapterTests(unittest.TestCase):
             _, spec_path = self.write(Path(directory), "1,10,12,2,x\n", spec)
             with self.assertRaises(ValueError):
                 AdapterSpec.from_json(spec_path)
+
+
+class FirmwareRegistryTests(unittest.TestCase):
+    """固件登记：先选后采是正常顺序，只有"上一轮已用过、这轮没重选"才算继承。"""
+
+    def setUp(self):
+        self.registry = FirmwareRegistry()
+        self.directory = tempfile.TemporaryDirectory()
+        self.path = str(Path(self.directory.name) / "initiator.fwpkg")
+        Path(self.path).write_bytes(b"pkg")
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_first_selection_is_not_inherited(self):
+        self.registry.select("initiator")
+        identity = self.registry.identity("initiator", self.path)
+        self.assertEqual(identity["status"], "provided")
+        self.assertFalse(identity["inherited"])
+
+    def test_selection_is_inherited_disabled_after_it_was_exported(self):
+        self.registry.select("initiator")
+        self.registry.consume("initiator", self.path)
+        self.assertTrue(self.registry.identity("initiator", self.path)["inherited"])
+
+    def test_reselecting_the_same_path_counts_as_confirmation(self):
+        self.registry.select("initiator")
+        self.registry.consume("initiator", self.path)
+        self.registry.select("initiator")
+        self.assertFalse(self.registry.identity("initiator", self.path)["inherited"])
+
+    def test_unselected_path_reports_not_provided(self):
+        identity = self.registry.identity("responder", "")
+        self.assertEqual(identity["status"], "not_provided")
+        self.assertFalse(identity["inherited"])
 
 
 if __name__ == "__main__":

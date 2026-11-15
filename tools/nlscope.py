@@ -21,6 +21,8 @@ from nlscope_core import (LineParser, Session, count_csv_rows, evaluate_evidence
 from serial_terminal import BootGateDecision, BootSessionGate, SERIAL_READ_TIMEOUT, pump_serial_lines, recovery_path
 from serial_reader import RawByteSink
 from experiment_specs import ExperimentSpec, expected_mapping, load_specs
+from wizard import ExperimentWizard
+from adapters import AdapterSpec, format_import_report, import_csv
 
 APP_VERSION = "M6.0.0-rc1"
 
@@ -329,6 +331,9 @@ class ScopeApp:
         self.active_port = ""
         self.session = Session()
         self.parser = LineParser()
+        self.wizard = ExperimentWizard()
+        self.wizard_window = None
+        self.wizard_text = None
         self.last_draw_n = -1
         self.last_draw_monitor_n = -1
         self.last_draw_at = 0.0
@@ -355,6 +360,7 @@ class ScopeApp:
         ttk.Button(controls, text="刷新", command=self.refresh_ports, width=6).pack(side="left", padx=(0, 8))
         ttk.Button(controls, text="开始串口", command=self.start_serial).pack(side="left")
         ttk.Button(controls, text="开始前检查", command=self.show_preflight).pack(side="left", padx=6)
+        ttk.Button(controls, text="实验向导", command=self.open_wizard).pack(side="left")
         ttk.Button(controls, text="打开日志", command=self.open_log).pack(side="left", padx=6)
         ttk.Button(controls, text="停止", command=self.stop).pack(side="left")
         ttk.Button(controls, text="清空", command=self.clear).pack(side="left", padx=6)
@@ -722,6 +728,8 @@ class ScopeApp:
         }
         checks = evaluate_evidence(run_payload, csv_rows)
         run_payload["evidence_checks"] = checks
+        self.wizard.see_export(checks.get("status", "warn"))
+        self._refresh_wizard()
         with run_path.open("x", encoding="utf-8") as handle:
             json.dump(run_payload, handle, ensure_ascii=False, indent=2)
         paths.extend((*auxiliary_paths, run_path))
@@ -984,6 +992,43 @@ class ScopeApp:
                  f"{item['name']}：{item['detail']}" for item in checks]
         messagebox.showinfo("采样前自检", format_preflight(checks) + "\n\n" + "\n".join(lines))
 
+    def open_wizard(self) -> None:
+        if self.wizard_window is not None and self.wizard_window.winfo_exists():
+            self.wizard_window.lift()
+            self._refresh_wizard()
+            return
+        window = self.tk.Toplevel(self.root)
+        window.title(f"实验向导 · {APP_VERSION}")
+        window.geometry("620x420")
+        text = self.tk.Text(window, wrap="word", padx=12, pady=10)
+        text.pack(fill="both", expand=True)
+        text.configure(state="disabled")
+        self.wizard_window = window
+        self.wizard_text = text
+        self._refresh_wizard()
+
+    def _refresh_wizard(self) -> None:
+        if self.wizard_text is None or self.wizard_window is None:
+            return
+        if not self.wizard_window.winfo_exists():
+            self.wizard_window = None
+            self.wizard_text = None
+            return
+        session = self.session
+        sequence = session.sample_sequence_metrics() or {}
+        self.wizard.see_samples(len(session.samples))
+        self.wizard.see_health(gaps=int(sequence.get("gaps") or 0),
+                               restarts=session.board_restarts,
+                               parse_failures=sum(session.parse_failures.values()))
+        if session.signature.role not in ("", "unknown"):
+            self.wizard.see_signature(session.signature.role,
+                                      session.signature.measurement_ready)
+        self.wizard.tick(self._capture_seconds())
+        self.wizard_text.configure(state="normal")
+        self.wizard_text.delete("1.0", "end")
+        self.wizard_text.insert("1.0", self.wizard.format_text())
+        self.wizard_text.configure(state="disabled")
+
     def start_serial(self) -> None:
         try:
             import serial  # type: ignore
@@ -1009,6 +1054,14 @@ class ScopeApp:
         source_id, stop_event = self._begin_source(port)
         self.strict_live_gate = True
         self.active_port = port
+        self.wizard = ExperimentWizard(
+            spec_name=self.expected_profile_name.get() or "",
+            target_seconds=self.wizard.target_seconds)
+        self.wizard.see_spec(self.expected_profile_name.get() or "")
+        live_aux = [terminal.active_port for terminal in self._live_aux_terminals()
+                    if terminal.is_open and getattr(terminal, "active_port", "")]
+        self.wizard.see_ports(port, live_aux[0] if live_aux else "")
+        self._refresh_wizard()
         self.main_recovery_file = recovery_path(port, "analysis")
         # 只读目录或无写权限时跳过 .raw，采集不能因为落盘失败而中断。
         self.main_raw_journal = RawByteSink(self.main_recovery_file) if self.main_recovery_file is not None else None
@@ -1131,6 +1184,7 @@ class ScopeApp:
                         )
                         continue
                     if decision.activated:
+                        self.wizard.see_boot()
                         if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
                             self.analysis_console.begin_boot_session()
                 event = self.parser.feed(line, received_at=received_at)
@@ -1192,6 +1246,8 @@ class ScopeApp:
             messagebox.showerror("拒绝覆盖", str(exc))
             return
         checks = evaluate_evidence(session_evidence_record(self.session), count_csv_rows(paths[1]))
+        self.wizard.see_export(checks.get("status", "warn"))
+        self._refresh_wizard()
         messagebox.showinfo("导出完成", "\n".join(str(p) for p in paths) + "\n\n" + format_evidence(checks))
 
     @staticmethod
@@ -1396,7 +1452,27 @@ def main() -> int:
                         help="只读复现某个证据目录：重放 initiator 日志并与 run.json 逐项对照")
     parser.add_argument("--reproduce-out", type=Path,
                         help="复现报告输出目录，默认 out/reproduce")
+    parser.add_argument("--import-csv", type=Path, metavar="CSV",
+                        help="按适配器把第三方 CSV 映射成规范化样本（只读原文件）")
+    parser.add_argument("--adapter", type=Path, metavar="JSON",
+                        help="配 --import-csv 使用的适配器描述文件")
     args = parser.parse_args()
+    if args.import_csv:
+        if not args.adapter:
+            parser.error("--import-csv 需要同时给 --adapter")
+        try:
+            spec = AdapterSpec.from_json(args.adapter)
+            session, report = import_csv(args.import_csv, spec)
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"导入失败：{exc}", file=sys.stderr)
+            return 6
+        print(format_import_report(report))
+        print_summary(session)
+        if args.export:
+            code = export_cli(session, args.export, args.import_csv.stem)
+            if code:
+                return code
+        return 0 if session.samples else 2
     if args.reproduce:
         if not args.reproduce.is_dir():
             parser.error(f"--reproduce 需要已存在的证据目录：{args.reproduce}")

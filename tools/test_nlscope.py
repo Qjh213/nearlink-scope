@@ -16,6 +16,8 @@ from nlscope_core import (LineParser, PlatformSignature, Session, count_csv_rows
 from nlscope import (M5_PROFILES, ScopeApp, discover_serial_ports, export_cli, file_identity,
                      reproduce_markdown, reproduce_run, repository_identity)
 from experiment_specs import ExperimentSpec, expected_mapping, load_specs
+from wizard import ExperimentWizard
+from adapters import AdapterSpec, format_import_report, import_csv
 import serial_terminal
 from serial_terminal import (BootSessionGate, SerialLineAccumulator, SerialSettings, SerialTerminalWindow,
                              encode_outbound, format_received, is_board_boot_line,
@@ -1059,6 +1061,124 @@ class PreflightTests(unittest.TestCase):
     def test_missing_port_is_fail(self):
         items = preflight_items(self.signature(), self.MATCHING, "", "", True, True)
         self.assertEqual(items[0]["status"], "fail")
+
+
+class WizardTests(unittest.TestCase):
+    """实验向导：只判断"这轮成不成立"，不碰硬件。"""
+
+    def good_wizard(self, **kwargs):
+        wizard = ExperimentWizard(target_seconds=180.0, **kwargs)
+        wizard.see_spec("M5 cfg500 基线 40B/40Hz")
+        wizard.see_ports("COM3", "COM4")
+        wizard.see_boot()
+        wizard.see_signature("initiator", True)
+        wizard.see_samples(7200)
+        wizard.tick(181.0)
+        return wizard
+
+    def test_fresh_wizard_is_idle_and_everything_todo(self):
+        wizard = ExperimentWizard()
+        snapshot = wizard.snapshot()
+        self.assertEqual(snapshot["status"], "idle")
+        self.assertTrue(all(item["status"] == "todo" for item in snapshot["items"]))
+
+    def test_full_flow_becomes_usable(self):
+        wizard = self.good_wizard()
+        status, message = wizard.verdict()
+        self.assertEqual(status, "usable")
+        self.assertIn("可以停止并联合导出", message)
+        self.assertIn("[x] 跑满 180 s", wizard.format_text())
+
+    def test_export_moves_to_archive(self):
+        wizard = self.good_wizard()
+        wizard.see_export("pass")
+        status, message = wizard.verdict()
+        self.assertEqual(status, "usable")
+        self.assertIn("README", message)
+
+    def test_board_restart_voids_the_run(self):
+        wizard = self.good_wizard()
+        wizard.see_health(restarts=2)
+        status, message = wizard.verdict()
+        self.assertEqual(status, "void")
+        self.assertIn("2 次", message)
+
+    def test_many_parse_failures_void_the_run(self):
+        wizard = self.good_wizard()
+        wizard.see_health(parse_failures=500)
+        self.assertEqual(wizard.verdict()[0], "void")
+
+    def test_same_port_blocks_before_anything_starts(self):
+        wizard = ExperimentWizard()
+        wizard.see_ports("COM3", "com3")
+        status, message = wizard.verdict()
+        self.assertEqual(status, "blocked")
+        self.assertIn("COM3", message)
+
+    def test_running_state_reports_progress(self):
+        wizard = ExperimentWizard(target_seconds=180.0)
+        wizard.see_spec("x")
+        wizard.see_ports("COM3", "")
+        wizard.see_samples(1200)
+        wizard.tick(30.0)
+        status, message = wizard.verdict()
+        self.assertEqual(status, "running")
+        self.assertIn("30.0 / 180", message)
+
+
+class AdapterTests(unittest.TestCase):
+    """第三方 CSV：只做列映射与单位换算，缺列/坏行必须说清楚。"""
+
+    SPEC = {"schema_version": 1, "name": "other-tool", "delimiter": ",",
+            "time_scale": 1000,
+            "columns": {"seq": "Index", "t1_us": "Send", "t4_us": "Recv",
+                        "bproc_us": "Board"},
+            "timestamp_column": "When",
+            "timestamp_format": "%Y-%m-%d %H:%M:%S.%f"}
+
+    def write(self, directory: Path, rows: str, spec: dict | None = None) -> tuple[Path, Path]:
+        csv_path = directory / "foreign.csv"
+        csv_path.write_text("Index,Send,Recv,Board,When\n" + rows, encoding="utf-8")
+        spec_path = directory / "adapter.json"
+        spec_path.write_text(json.dumps(spec or self.SPEC), encoding="utf-8")
+        return csv_path, spec_path
+
+    def test_maps_columns_and_scales_milliseconds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            csv_path, spec_path = self.write(Path(directory),
+                                             "1,10.0,12.5,2.0,2026-11-15 20:00:00.500\n"
+                                             "2,11.0,13.0,2.0,2026-11-15 20:00:00.600\n")
+            session, report = import_csv(csv_path, AdapterSpec.from_json(spec_path))
+        self.assertEqual(report["imported"], 2)
+        self.assertEqual(report["bad"], 0)
+        self.assertEqual(session.samples[0].t1_us, 10000)
+        self.assertEqual(session.samples[0].rtt_us, 2500)
+        self.assertEqual(session.samples[0].wall_time.microsecond, 500000)
+
+    def test_bad_rows_are_counted_not_dropped_silently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            csv_path, spec_path = self.write(Path(directory),
+                                             "1,10.0,12.5,2.0,x\n"
+                                             "2,oops,13.0,2.0,2026-11-15 20:00:00.600\n"
+                                             "3,12.0,14.0,2.0,2026-11-15 20:00:00.700\n")
+            session, report = import_csv(csv_path, AdapterSpec.from_json(spec_path))
+        self.assertEqual((report["rows"], report["imported"], report["bad"]), (3, 2, 1))
+        self.assertIn("ValueError", report["reasons"])
+
+    def test_missing_column_mapping_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            spec = dict(self.SPEC)
+            spec["columns"] = {"seq": "Index", "t1_us": "Send"}
+            _, spec_path = self.write(Path(directory), "1,10,12,2,x\n", spec)
+            with self.assertRaises(ValueError):
+                AdapterSpec.from_json(spec_path)
+
+    def test_bad_schema_version_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            spec = dict(self.SPEC, schema_version=2)
+            _, spec_path = self.write(Path(directory), "1,10,12,2,x\n", spec)
+            with self.assertRaises(ValueError):
+                AdapterSpec.from_json(spec_path)
 
 
 if __name__ == "__main__":

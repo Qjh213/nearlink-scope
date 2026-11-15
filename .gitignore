@@ -36,3 +36,6 @@ docs/会话交接-*.md
 # os
 Thumbs.db
 .DS_Store
+
+# 导出给外部阅读的 PDF（源文件是 docs/*.md）
+docs/*.pdf

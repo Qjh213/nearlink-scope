@@ -28,10 +28,10 @@ M5 已完成（距离组 531/532 按决议本轮不做）：包长 12/100/250 B�
 怎么从零跑通、怎么测链路稳定性，见 [`docs/上手与复现手册.md`](docs/上手与复现手册.md)；
 哪些该提交见 [`docs/提交与仓库规范.md`](docs/提交与仓库规范.md)。
 
-**M6 进行中（2026-11-15 起）**：第一件事是把分发件补齐——安装版与便携版已用 `M5.0.9-rc5`
-源码重建（`dist\release\NearLink-LinkScope-M5.0.9-rc5-{Setup.exe,Portable.zip}`），
-版本号改为从 `tools/nlscope.py` 的 `APP_VERSION` 单一来源生成，见
-[`docs/releases/vM5.0.9-rc5.md`](docs/releases/vM5.0.9-rc5.md)。
+**M6（2026-11-15）**：分发件与统计口径一起重做——安装版与便携版由 `APP_VERSION` 单一来源生成
+（当前 `M6.0.0-rc2`，见 [`docs/releases/vM6.0.0-rc2.md`](docs/releases/vM6.0.0-rc2.md)）；
+`ooo`/`rx_drop`/`send_err`/`cfm_err` 等计数器真正上报，缺失值显示 `—` 而不是 0；
+导出带证据自检并拒绝覆盖，原始字节另存 `.raw`；支持一键复现、实验向导与第三方 CSV 接入。
 
 ## 硬件基线
 

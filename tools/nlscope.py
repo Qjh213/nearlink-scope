@@ -24,7 +24,7 @@ from experiment_specs import ExperimentSpec, expected_mapping, load_specs
 from wizard import ExperimentWizard
 from adapters import AdapterSpec, format_import_report, import_csv
 
-APP_VERSION = "M6.0.0-rc1"
+APP_VERSION = "M6.0.0-rc2"
 
 def _load_default_specs() -> dict[str, ExperimentSpec]:
     """规格文件缺失/损坏时不能拖垮整个程序：退回两条通用规格并保留错误原因。"""

@@ -33,17 +33,18 @@ function Get-Cc {
     throw '没有找到 C 编译器：装 gcc/clang，或 pip install --target .tools\py ziglang 后设置 PYTHONPATH'
 }
 
-$cc = Get-Cc
+# 注意：PowerShell 会把单元素数组还原成字符串，$cc[0] 就变成首字母（"g"）。
+# 这里显式 @(...) 固定成数组，命令行前缀单独取，避免 $cc[1..0] 取到 $null。
+$cc = @(Get-Cc)
+$ccExe = $cc[0]
+$ccPrefix = @()
+if ($cc.Count -gt 1) { $ccPrefix = @($cc[1..($cc.Count - 1)]) }
 $common = @('-std=c99', '-Wall', '-Wextra')
 Write-Host "compiler: $($cc -join ' ')" -ForegroundColor DarkGray
 
 function Invoke-Compile([string[]]$CompileArgs, [string]$Output) {
     Remove-Item -LiteralPath $Output -Force -ErrorAction SilentlyContinue
-    if ($cc.Count -gt 1) {
-        & $cc[0] @($cc[1..($cc.Count - 1)]) @CompileArgs
-    } else {
-        & $cc[0] @CompileArgs
-    }
+    & $ccExe @ccPrefix @CompileArgs
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $Output)) {
         throw "compile failed: $Output (exit=$LASTEXITCODE)"
     }

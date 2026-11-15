@@ -15,6 +15,9 @@ from typing import Iterable, Optional
 
 
 QCOM_TS = re.compile(r"^\[(\d{4})-(\d\d)-(\d\d)_(\d\d):(\d\d):(\d\d):(\d{3})\]")
+# 历史导出（M5 时期）把时间戳单独写成一行，正文在下一行；重放时要把时间戳接回正文，
+# 否则 wall_time 全空、样本记录时长恒为 0。这是读旧证据的兼容路径，不改变新导出格式。
+STANDALONE_TS = re.compile(r"^\[(\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2}:\d{3})\]$")
 KV = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=([^\s,]+)")
 
 
@@ -270,8 +273,86 @@ def percentile(values: list[int], p: float) -> Optional[int]:
     return int(round(value))
 
 
+def preflight_items(signature: "Signature", expect: dict | None, port: str,
+                    aux_port: str, firmware_registered: bool,
+                    output_writable: bool) -> list[dict]:
+    """采样前自检：只回答"现在按开始，能不能得到可用证据"，不评价链路。
+
+    返回 [{name, status, detail}]，status ∈ {pass, warn, fail}。fail 只用于"现在开始一定白采"，
+    其余都是提醒——例如还没收到签名行，但开天后几行就会有。
+    """
+    items: list[dict] = []
+
+    def add(name: str, status: str, detail: str) -> None:
+        items.append({"name": name, "status": status, "detail": detail})
+
+    add("分析串口", "pass" if port else "fail",
+        f"已选择 {port}" if port else "没有选择分析串口，开始后不会收到任何数据")
+    if not aux_port:
+        add("辅助串口", "warn", "没有配置辅助串口：responder 侧不会留下原始字节")
+    elif aux_port.upper() == port.upper():
+        add("辅助串口", "fail", f"辅助串口与主串口都是 {port}：同一个口不能开两次")
+    else:
+        add("辅助串口", "pass", f"{aux_port}（只记原始字节，不参与统计）")
+
+    if signature.role == "unknown" and (signature.cfg or "unknown") == "unknown":
+        add("平台签名", "warn", "还没收到签名行：boot. 之后应出现 role=… cfg=…；若波特率或接线不对，这里会一直空着")
+    elif signature.selftest not in ("PASS", "unknown", None):
+        add("平台签名", "warn", f"板端自检未通过：selftest={signature.selftest}")
+    elif signature.measurement_ready is False:
+        add("平台签名", "warn", "签名行已出现但 ready=no：协调参数可能还没协商完")
+    else:
+        add("平台签名", "pass", str(signature))
+
+    if not expect:
+        add("实验规格", "warn", "没有选择预期实验：导出时不会写入规格，事后无法核对条件")
+    else:
+        want = {k: v for k, v in expect.items() if v is not None}
+        got = {"role": signature.role, "link": signature.link, "cfg": signature.cfg,
+               "payload": signature.payload_b, "rate": signature.rate_hz,
+               "window": signature.window, "timeout": signature.timeout_ms,
+               "intv": signature.interval}
+        diff = []
+        for key, value in want.items():
+            actual = got.get(key)
+            if actual is None:
+                continue
+            if isinstance(value, str) and isinstance(actual, str):
+                same = value.lower() == actual.lower()
+            else:
+                same = value == actual
+            if not same:
+                diff.append(f"{key}={actual}（期望 {value}）")
+        if signature.role == "unknown":
+            add("实验规格", "warn", "签名未到，无法核对规格")
+        elif diff:
+            add("实验规格", "warn", "与签名不一致：" + "；".join(diff))
+        else:
+            add("实验规格", "pass", "签名与所选规格一致")
+
+    add("固件登记", "pass" if firmware_registered else "warn",
+        "两端固件已登记 SHA-256" if firmware_registered else "没有登记固件：导出里不会有固件 SHA-256（M5 早期证据的缺口就是这样来的）")
+    add("输出目录", "pass" if output_writable else "warn",
+        "可写" if output_writable else "工作区不可写：导出会失败，先换到可写的目录")
+    return items
+
+
+def format_preflight(items: list[dict]) -> str:
+    worst = "pass"
+    for item in items:
+        if item["status"] == "fail":
+            worst = "fail"
+            break
+        if item["status"] == "warn":
+            worst = "warn"
+    head = {"pass": "PASS", "warn": "WARN", "fail": "FAIL"}[worst]
+    body = "；".join(f"{item['name']}={item['status']} {item['detail']}" for item in items)
+    return f"采样前自检：{head}；{body}"
+
+
 @dataclass
 class Session:
+
     signature: PlatformSignature = field(default_factory=PlatformSignature)
     samples: list[Sample] = field(default_factory=list)
     adv_records: list[AdvRecord] = field(default_factory=list)
@@ -400,6 +481,61 @@ class Session:
         result["board_restarts"] = self.board_restarts
         return result
 
+    def capabilities(self) -> dict[str, object]:
+        """本轮数据"能算什么"：等级取最高连续可用项，缺什么必须写清原因。
+
+        四级依次是 raw（有原始行）→ interval（能算间隔）→ rtt（能算往返时延）
+        → reliability（能算丢包/超时/重复）。这不是"数据好不好"的评价，
+        而是"这份证据允许下什么结论"的边界：缺 SUM 时 `to` 必须显示未知，
+        不能让读者把"没上报"读成"零丢包"。
+        """
+        session_type = ("active+monitor" if self.samples and self.adv_records
+                        else "active" if self.samples
+                        else "monitor" if self.adv_records else "empty")
+        items: list[dict[str, object]] = []
+
+        def add(key: str, label: str, available: bool, reason: str = "") -> None:
+            items.append({"key": key, "label": label, "available": available, "reason": reason})
+
+        has_lines = bool(self.raw_lines)
+        add("raw", "查看原始行", has_lines, "" if has_lines else "本轮没有收到任何串口行")
+        if session_type == "monitor":
+            count = len(self.adv_records)
+            add("interval", "事件间隔（板端 t_us）", count >= 2,
+                "" if count >= 2 else f"监听记录只有 {count} 条，间隔无意义")
+            add("rtt", "RTT（t4-t1）", False, "本轮是被动监听数据，没有请求-响应配对，算不出 RTT")
+            add("reliability", "丢包 / 超时计数（板端 SUM）", False, "被动监听没有收发计数")
+        else:
+            count = len(self.samples)
+            add("interval", "采样间隔（seq / t1）", count >= 2,
+                "" if count >= 2 else f"有效样本只有 {count} 条，间隔无意义")
+            valid_rtt = sum(1 for row in self.samples if row.rtt_us is not None)
+            add("rtt", "RTT（t4-t1）", valid_rtt > 0,
+                "" if valid_rtt else "没有通过校验的样本，算不出 RTT")
+            missing = [key for key in ("sent", "recv", "to") if key not in self.counters]
+            if self.sum_frames_seen == 0:
+                reliability_reason = "未收到板端 SUM：板端计数器未知，不能当作零"
+            elif missing:
+                reliability_reason = f"最近一条 SUM 缺字段：{', '.join(missing)}"
+            else:
+                reliability_reason = ""
+            add("reliability", "丢包 / 超时 / 重复（板端 SUM）",
+                not reliability_reason, reliability_reason)
+
+        labels = {"none": "无", "raw": "原始日志", "interval": "间隔",
+                  "rtt": "RTT", "reliability": "可靠性计数"}
+        available = {str(item["key"]): bool(item["available"]) for item in items}
+        level = "none"
+        for key in ("raw", "interval", "rtt", "reliability"):
+            if not available.get(key):
+                break
+            level = key
+        blocked = next((item for item in items if not item["available"]), None)
+        label = f"可算{labels[level]}"
+        if blocked is not None and blocked["key"] != "raw":
+            label += f"（不可算{labels[str(blocked['key'])]}：{blocked['reason']}）"
+        return {"level": level, "session_type": session_type, "label": label, "items": items}
+
     def sample_sequence_metrics(self) -> dict[str, int]:
         gaps = duplicates = out_of_order = wraps = 0
         for previous, current in zip(self.samples, self.samples[1:]):
@@ -483,6 +619,7 @@ class Session:
                                      row.wall_time.isoformat(timespec="milliseconds") if row.wall_time else ""))
         metrics = self.metrics()
         payload = {"platform_signature": asdict(self.signature), "pc_exact_metrics": metrics,
+                   "capabilities": self.capabilities(),
                    "monitor_metrics": self.monitor_metrics(), "board_latest_sum": self.counters,
                    "sum_frames_seen": self.sum_frames_seen,
                    "samples_since_latest_sum": metrics["samples_since_latest_sum"]}
@@ -506,6 +643,22 @@ class Session:
         def counter(key: str) -> str:
             value = m[key]
             return "—" if value is None else str(value)
+        caps = self.capabilities()
+        capability_rows = "\n".join(
+            f"| {item['label']} | {'可用' if item['available'] else '不可用'} | {item['reason'] or '—'} |"
+            for item in caps["items"])
+        # 同一份日志里可能既有 active 样本又有 monitor 报告（例如串口没关就切了固件）。
+        # 两类数据不能混进同一张表：active 指标只统计 S 行，监听摘要单独列。
+        monitor_section = ""
+        if self.adv_records:
+            monitored = self.monitor_metrics()
+            monitor_section = (
+                "## 附带监控记录（不计入上面的 active 指标）\n\n"
+                f"- 监听记录：{len(self.adv_records)} 条，设备 {len(monitored['devices'])} 个，"
+                f"记录跨度 {self.monitor_span_seconds():.3f} s\n"
+                f"- 明细见 JSON 的 `monitor_metrics`；上面的 p50/p99 只由 `S,` 样本得到，"
+                "两者不可相加，也不要互相验证。\n\n"
+            )
         sum_status = (
             "未收到板端 SUM；板端异常计数未知，不能解释为零"
             if self.sum_frames_seen == 0
@@ -518,6 +671,16 @@ class Session:
 
 `{self.signature.compact()}`
 
+## 统计能力
+
+**{caps['label']}**（本轮会话类型：{caps['session_type']}）
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+{capability_rows}
+
+上表是"这份数据允许下什么结论"的边界：标为不可用的指标，报告里显示 `—` 而不是 0。
+
 ## PC 原始样本精确统计
 
 | 指标 | 数值 |
@@ -525,7 +688,7 @@ class Session:
 | 有效样本 | {m['n']} |
 | 样本记录时长 | {seconds('sample_span_s')} s |
 | 板端发包时间跨度 | {seconds('board_sample_span_s')} s |
-| 板卡重启次数（按 SUM 的 n 回退判定） | {m['board_restarts']} |
+| 板卡重启次数（按样本序号回退判定） | {m['board_restarts']} |
 | RTT p50 | {ms('p50_us')} |
 | RTT p90 | {ms('p90_us')} |
 | RTT p99 | {ms('p99_us')} |
@@ -550,6 +713,7 @@ class Session:
 {json.dumps(self.counters, ensure_ascii=False, indent=2)}
 ```
 
+{monitor_section}
 ## 口径
 
 - PC 分位数使用线性插值（与 NumPy 默认 percentile 一致），最终四舍五入到 1 µs。
@@ -596,9 +760,17 @@ def load_log(path: Path) -> Session:
         return load_csv(path)
     parser = LineParser(source=str(path))
     session = Session()
+    pending: Optional[datetime] = None
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
-            session.add(parser.feed(line), parser.signature)
+            match = STANDALONE_TS.match(line.strip("\r\n\t "))
+            if match:
+                try:
+                    pending = datetime.strptime(match.group(1), "%Y-%m-%d_%H:%M:%S:%f")
+                except ValueError:
+                    pending = None
+                continue
+            session.add(parser.feed(line, received_at=pending), parser.signature)
     return session
 
 

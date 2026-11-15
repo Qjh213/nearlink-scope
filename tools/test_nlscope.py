@@ -1,6 +1,7 @@
 import queue
 import csv
 import hashlib
+import json
 import tempfile
 import time
 import threading
@@ -9,10 +10,11 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-from nlscope_core import (LineParser, Session, count_csv_rows, evaluate_evidence, feed_lines,
-                          format_evidence, load_csv, load_log)
+from nlscope_core import (LineParser, PlatformSignature, Session, count_csv_rows, evaluate_evidence,
+                          feed_lines, format_evidence, format_preflight, load_csv, load_log,
+                          preflight_items)
 from nlscope import (M5_PROFILES, ScopeApp, discover_serial_ports, export_cli, file_identity,
-                     repository_identity)
+                     reproduce_markdown, reproduce_run, repository_identity)
 from experiment_specs import ExperimentSpec, expected_mapping, load_specs
 import serial_terminal
 from serial_terminal import (BootSessionGate, SerialLineAccumulator, SerialSettings, SerialTerminalWindow,
@@ -841,6 +843,222 @@ class RecoveryDirectoryTests(unittest.TestCase):
                 with mock.patch.object(serial_terminal.Path, "cwd", return_value=workdir):
                     self.assertIsNone(serial_terminal.recovery_root())
                     self.assertIsNone(serial_terminal.recovery_path("COM3", "analysis"))
+
+
+class CapabilityTests(unittest.TestCase):
+    """能力分级：#5 要求界面/报告说清"这份数据允许下什么结论"。"""
+
+    SAMPLES = [
+        "S,1,1000,11000,10000,12,3\n",
+        "S,2,26000,37000,11000,13,3\n",
+        "S,3,51000,62000,11000,14,3\n",
+    ]
+
+    def test_active_session_without_sum_can_only_reach_rtt(self):
+        caps = feed_lines(self.SAMPLES).capabilities()
+        self.assertEqual(caps["level"], "rtt")
+        self.assertEqual(caps["session_type"], "active")
+        reliability = next(item for item in caps["items"] if item["key"] == "reliability")
+        self.assertFalse(reliability["available"])
+        self.assertIn("未收到板端 SUM", reliability["reason"])
+        self.assertIn("不可算可靠性计数", caps["label"])
+
+    def test_active_session_with_sum_reaches_reliability(self):
+        caps = feed_lines(self.SAMPLES + ["# SUM n=3 sent=3 recv=3 to=0 dup=0\n"]).capabilities()
+        self.assertEqual(caps["level"], "reliability")
+        reliability = next(item for item in caps["items"] if item["key"] == "reliability")
+        self.assertTrue(reliability["available"])
+        self.assertEqual(reliability["reason"], "")
+
+    def test_sum_missing_counters_blocks_reliability(self):
+        caps = feed_lines(self.SAMPLES + ["# SUM n=3 sent=3 recv=3\n"]).capabilities()
+        self.assertEqual(caps["level"], "rtt")
+        reliability = next(item for item in caps["items"] if item["key"] == "reliability")
+        self.assertIn("缺字段", reliability["reason"])
+        self.assertIn("to", reliability["reason"])
+
+    def test_monitor_session_stops_at_interval(self):
+        caps = feed_lines([
+            "ADV,1,1000,0,aabbccdd,-40,0,2,1122\n",
+            "ADV,2,61000,0,aabbccdd,-41,0,2,3344\n",
+        ]).capabilities()
+        self.assertEqual(caps["session_type"], "monitor")
+        self.assertEqual(caps["level"], "interval")
+        rtt = next(item for item in caps["items"] if item["key"] == "rtt")
+        self.assertIn("被动监听", rtt["reason"])
+
+    def test_export_payload_and_report_describe_capabilities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, _, meta_path, report_path = feed_lines(self.SAMPLES).export(Path(directory), "demo")
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+            report = report_path.read_text(encoding="utf-8")
+        self.assertEqual(payload["capabilities"]["level"], "rtt")
+        self.assertIn("## 统计能力", report)
+        self.assertIn("可算RTT", report)
+        self.assertIn("未收到板端 SUM", report)
+
+
+    def test_mixed_session_keeps_monitor_records_out_of_sample_metrics(self):
+        # 串口没关就换了固件时，同一份日志里会同时出现 S 行和 ADV 行；两者不能混算。
+        session = feed_lines(self.SAMPLES + ["ADV,1,1000,0,aabbccdd,-40,0,2,1122\n"])
+        caps = session.capabilities()
+        self.assertEqual(caps["session_type"], "active+monitor")
+        with tempfile.TemporaryDirectory() as directory:
+            _, _, meta_path, report_path = session.export(Path(directory), "demo")
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+            report = report_path.read_text(encoding="utf-8")
+        self.assertEqual(payload["pc_exact_metrics"]["n"], 3)
+        self.assertEqual(payload["monitor_metrics"]["n"], 1)
+        self.assertIn("附带监控记录", report)
+        self.assertIn("不计入上面的 active 指标", report)
+
+
+    def test_replay_reattaches_standalone_timestamp_lines(self):
+        # M5 时期的导出让时间戳单独占一行、正文在下一行；重放时必须把两者接回去，
+        # 否则 wall_time 全空、样本记录时长恒为 0（旧证据会被误读成"零跨度"）。
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.log"
+            path.write_text(
+                "[2026-11-10_20:00:00:000]\n"
+                "S,1,1000,11000,10000,12,3\n"
+                "[2026-11-10_20:00:01:000]\n"
+                "S,2,26000,37000,11000,13,3\n",
+                encoding="utf-8")
+            session = load_log(path)
+            self.assertEqual(len(session.samples), 2)
+            self.assertEqual(session.metrics()["sample_span_s"], 1.0)
+            self.assertEqual(session.samples[0].wall_time,
+                             datetime(2026, 11, 10, 20, 0, 0))
+            with tempfile.TemporaryDirectory() as out:
+                raw_path, *_ = session.export(Path(out), "legacy")
+                lines = raw_path.read_text(encoding="utf-8").splitlines()
+        self.assertIn("[2026-11-10_20:00:00:000]S,1,1000,11000,10000,12,3", lines)
+        self.assertNotIn("[2026-11-10_20:00:00:000]", lines)
+
+
+class ReproduceReportTests(unittest.TestCase):
+    """`--reproduce` 的契约：只读证据目录、数字对得上、缺件不崩。"""
+
+    @staticmethod
+    def make_run(directory: Path) -> Path:
+        run_dir = directory / "run1"
+        run_dir.mkdir()
+        rows = [("1", 1000, 11000, 10000, 12), ("2", 2000, 13000, 11000, 13),
+                ("3", 3000, 14500, 11500, 11)]
+        with (run_dir / "initiator_COM3.log").open("w", encoding="utf-8") as handle:
+            for seq, t1, t4, rtt, bproc in rows:
+                handle.write(f"[2026-11-15_20:00:00:000]S,{seq},{t1},{t4},{rtt},{bproc},3\r")
+            handle.write("[2026-11-15_20:00:00:010]# SUM n=3 sent=3 recv=3 to=0 dup=0 "
+                         "ooo=0 bad=0 drop=0 rx_drop=0 send_err=0 cfm_err=0\r")
+        (run_dir / "initiator_COM3.raw").write_bytes(b"\x00" * 96)
+        (run_dir / "initiator_COM3.csv").write_text(
+            "seq,t1_us,t4_us,rtt_us,bproc_us,wall_time\n"
+            "1,1000,11000,10000,12,2026-11-15T20:00:00.000\n"
+            "2,2000,13000,11000,13,2026-11-15T20:00:00.001\n"
+            "3,3000,14500,11500,11,2026-11-15T20:00:00.002\n",
+            encoding="utf-8")
+        (run_dir / "run.json").write_text(json.dumps({
+            "app_version": "M6.0.0-rc1",
+            "source_identity": {"git_head": "0" * 40, "git_dirty": False},
+            "experiment_spec": {"name": "unit", "mode": "measure"},
+            "firmware_identity": {
+                "initiator": {"path": "a.fwpkg", "sha256": "1" * 64, "status": "provided"},
+                "responder": {"path": "b.fwpkg", "sha256": "2" * 64, "status": "provided"},
+            },
+            "analysis_samples": 3,
+        }), encoding="utf-8")
+        (run_dir / "initiator_COM3.json").write_text(json.dumps({
+            "pc_exact_metrics": {"n": 3, "p50_us": 11000, "p90_us": 11500,
+                                 "p99_us": 11500, "max_us": 11500,
+                                 "to": 0, "dup": 0, "ooo": 0, "bad": 0, "drop": 0},
+        }), encoding="utf-8")
+        return run_dir
+
+    def test_report_matches_recorded_numbers_and_passes_self_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self.make_run(Path(directory))
+            session = load_log(run_dir / "initiator_COM3.log")
+            report = reproduce_markdown(session, run_dir,
+                                        json.loads((run_dir / "run.json").read_text(encoding="utf-8")),
+                                        run_dir / "initiator_COM3.log",
+                                        {"n": 3, "p50_us": 11000, "p90_us": 11500,
+                                         "p99_us": 11500, "max_us": 11500})
+        self.assertIn("| 有效样本 | 3 | 3 | 一致 |", report)
+        self.assertIn("自检：PASS", report)
+        self.assertIn("M6.0.0-rc1", report)
+        self.assertIn("a.fwpkg", report)
+
+    def test_report_flags_mismatched_numbers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = self.make_run(Path(directory))
+            session = load_log(run_dir / "initiator_COM3.log")
+            report = reproduce_markdown(session, run_dir, None,
+                                        run_dir / "initiator_COM3.log",
+                                        {"n": 3, "p50_us": 99999})
+        self.assertIn("**不一致**", report)
+        self.assertIn("记录缺失", report)  # 记录里没有 p90/p99/max
+
+    def test_run_writes_outside_evidence_dir_and_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = self.make_run(root)
+            before = sorted(path.name for path in run_dir.iterdir())
+            out = root / "reports"
+            self.assertEqual(reproduce_run(run_dir, out), 0)
+            self.assertEqual(sorted(path.name for path in run_dir.iterdir()), before)
+            report = out / f"{run_dir.name}-reproduce.md"
+            self.assertTrue(report.exists())
+            self.assertEqual(reproduce_run(run_dir, out), 5)
+
+    def test_run_without_log_returns_4(self):
+        with tempfile.TemporaryDirectory() as directory:
+            empty = Path(directory)
+            self.assertEqual(reproduce_run(empty, empty / "out"), 4)
+
+
+class PreflightTests(unittest.TestCase):
+    """采样前自检：fail 只用于"现在开始一定白采"。"""
+
+    @staticmethod
+    def signature(**overrides) -> PlatformSignature:
+        values = dict(role="initiator", link="sle-write_cmd", cfg="500", payload_b=40,
+                      rate_hz=40, window=1, timeout_ms=50, interval=24,
+                      selftest="PASS", measurement_ready=True)
+        values.update(overrides)
+        return PlatformSignature(**values)
+
+    MATCHING = {"role": "initiator", "link": "sle-write_cmd", "cfg": "500",
+                "payload": 40, "rate": 40, "window": 1, "timeout": 50, "intv": 24}
+
+    def test_all_good_is_pass(self):
+        items = preflight_items(self.signature(), self.MATCHING, "COM3", "COM4", True, True)
+        self.assertEqual(format_preflight(items).split("；")[0], "采样前自检：PASS")
+
+    def test_same_aux_port_is_fail(self):
+        items = preflight_items(self.signature(), self.MATCHING, "COM3", "com3", True, True)
+        aux = next(item for item in items if item["name"] == "辅助串口")
+        self.assertEqual(aux["status"], "fail")
+        self.assertIn("同一个口不能开两次", aux["detail"])
+        self.assertTrue(format_preflight(items).startswith("采样前自检：FAIL"))
+
+    def test_spec_mismatch_is_warn_and_names_the_field(self):
+        items = preflight_items(self.signature(), {"cfg": "521", "rate": 25}, "COM3", "COM4", True, True)
+        spec = next(item for item in items if item["name"] == "实验规格")
+        self.assertEqual(spec["status"], "warn")
+        self.assertIn("cfg=500（期望 521）", spec["detail"])
+        self.assertIn("rate=40（期望 25）", spec["detail"])
+
+    def test_unknown_signature_is_warn_not_fail(self):
+        items = preflight_items(PlatformSignature(), self.MATCHING, "COM3", "", False, True)
+        names = {item["name"]: item["status"] for item in items}
+        self.assertEqual(names["平台签名"], "warn")
+        self.assertEqual(names["实验规格"], "warn")
+        self.assertEqual(names["固件登记"], "warn")
+        self.assertFalse(any(item["status"] == "fail" for item in items))
+
+    def test_missing_port_is_fail(self):
+        items = preflight_items(self.signature(), self.MATCHING, "", "", True, True)
+        self.assertEqual(items[0]["status"], "fail")
 
 
 if __name__ == "__main__":

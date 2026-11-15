@@ -17,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from nlscope_core import (LineParser, Session, count_csv_rows, evaluate_evidence,
-                          format_evidence, load_log)
+                          format_evidence, format_preflight, load_log, preflight_items)
 from serial_terminal import BootGateDecision, BootSessionGate, SERIAL_READ_TIMEOUT, pump_serial_lines, recovery_path
 from serial_reader import RawByteSink
 from experiment_specs import ExperimentSpec, expected_mapping, load_specs
@@ -97,9 +97,11 @@ def discover_serial_ports() -> list[tuple[str, str]]:
 
 
 def print_summary(session: Session) -> None:
+    caps = session.capabilities()
     if session.adv_records:
         metrics = session.monitor_metrics()
         print(session.signature.compact())
+        print(f"能力：{caps['label']}")
         print(f"adv={metrics['n']} devices={len(metrics['devices'])} sequence={metrics['sequence']}")
         return
     metrics = session.metrics()
@@ -107,6 +109,7 @@ def print_summary(session: Session) -> None:
         value = metrics[key]
         return "—" if value is None else str(value)
     print(session.signature.compact())
+    print(f"能力：{caps['label']}")
     print(
         f"n={metrics['n']} p50={metrics['p50_us']}us p90={metrics['p90_us']}us "
         f"p99={metrics['p99_us']}us p999={metrics['p999_us']}us max={metrics['max_us']}us "
@@ -138,6 +141,168 @@ def export_cli(session: Session, directory: Path, stem: str) -> int:
     print(format_evidence(evaluate_evidence(session_evidence_record(session),
                                             count_csv_rows(paths[1]))))
     return 0
+
+
+def reproduce_markdown(session: Session, run_dir: Path, recorded: dict | None,
+                       source: Path, recorded_metrics: dict | None = None,
+                       csv_rows: int | None = None) -> str:
+    """把"这一轮凭什么得出这个结论"压成一份可独立阅读的报告。"""
+    metrics = session.metrics()
+    caps = session.capabilities()
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    source_record = (recorded or {}).get("source_identity") or {}
+    firmware = (recorded or {}).get("firmware_identity") or {}
+    spec = (recorded or {}).get("experiment_spec") or {}
+    saved_metrics = recorded_metrics or {}
+
+    def identity_block(role: str) -> str:
+        item = firmware.get(role) or {}
+        if not item:
+            return f"- {role}: 未登记"
+        name = Path(item.get("path") or "?").name
+        return (f"- {role}: `{name}` sha256={item.get('sha256') or '?'} "
+                f"status={item.get('status') or '?'}"
+                + ("（沿用上一会话登记）" if item.get("inherited") else ""))
+
+    rows = []
+    for key, label, unit in (("n", "有效样本", ""), ("p50_us", "p50", " µs"),
+                             ("p90_us", "p90", " µs"), ("p99_us", "p99", " µs"),
+                             ("max_us", "max", " µs")):
+        replay = metrics.get(key)
+        saved = saved_metrics.get(key)
+        if saved is None:
+            verdict = "无记录（没找到 initiator_*.json）" if recorded_metrics is None else "记录缺失"
+        elif replay == saved:
+            verdict = "一致"
+        else:
+            verdict = f"**不一致**（差 {None if replay is None else replay - saved}）"
+        rows.append(f"| {label} | {saved if saved is not None else '—'}{unit} | "
+                    f"{replay if replay is not None else '—'}{unit} | {verdict} |")
+
+    counters = []
+    for key in ("to", "dup", "ooo", "bad", "drop", "rx_drop", "send_err", "cfm_err"):
+        saved = saved_metrics.get(key)
+        replay = metrics.get(key)
+        counters.append(f"{key}={replay if replay is not None else '—'}"
+                        + ("" if saved is None or saved == replay else f"（记录 {saved}）"))
+
+    capability_rows = "\n".join(
+        f"| {item['label']} | {'可用' if item['available'] else '不可用'} | {item['reason'] or '—'} |"
+        for item in caps["items"])
+    if csv_rows is None:
+        sibling = next(iter(sorted(run_dir.glob("initiator_*.csv"))), None)
+        csv_rows = count_csv_rows(sibling) if sibling is not None else None
+    raw_file = next(iter(sorted(run_dir.glob("initiator_*.raw"))), None)
+    raw_bytes = raw_file.stat().st_size if raw_file is not None else None
+    # 自检用"记录 + 重放"合并后的 record：身份来自 run.json，样本数与序号来自这次重放。
+    checks = format_evidence(evaluate_evidence({
+        "analysis_samples": len(session.samples),
+        "pc_sequence": session.sample_sequence_metrics(),
+        "parse_failures": session.parse_failures,
+        "platform_signature": asdict(session.signature),
+        "sum_frames_seen": session.sum_frames_seen,
+        "board_restarts": session.board_restarts,
+        "capabilities": caps,
+        "source_identity": source_record,
+        "firmware_identity": firmware,
+        "analysis_raw_bytes": raw_bytes,
+    }, csv_rows))
+    return f"""# 复现报告：{run_dir.name}
+
+本报告由 `tools/nlscope.py --reproduce` 生成，只读：不修改被复现目录里的任何文件。
+
+## 源
+
+| 项 | 值 |
+|---|---|
+| 日志 | `{source.name}` |
+| 字节数 | {source.stat().st_size} |
+| SHA-256 | `{digest}` |
+| 记录轮次 | `{run_dir}` |
+
+## 当时的身份（来自 run.json）
+
+- 程序版本：`{(recorded or {}).get('app_version', '未记录')}`
+- 代码身份：`{(source_record.get('git_head') or '未记录')}`，dirty=`{source_record.get('git_dirty')}`
+- 实验规格：`{spec.get('name', '未记录')}`（mode={spec.get('mode')}）
+{identity_block('initiator')}
+{identity_block('responder')}
+
+## 本次复现环境
+
+- 复现程序版本：`{APP_VERSION}`
+- 当前代码身份：`{repository_identity().get('git_head', '?')}`，dirty=`{repository_identity().get('git_dirty')}`
+- 解析器：`nlscope_core` 当前实现（线性分位数、只认序号回退判重启）
+
+## 统计能力
+
+**{caps['label']}**（会话类型：{caps['session_type']}）
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+{capability_rows}
+
+## 重放结果与记录值对照
+
+| 指标 | 记录值 | 重放值 | 判定 |
+|---|---:|---:|---|
+{chr(10).join(rows)}
+
+板端计数器：{'; '.join(counters)}
+
+## 自检
+
+`{checks}`
+
+## 限制
+
+- 重放只能看到落盘的文本，看不到 `.raw` 原始字节；PC 侧 `dropped_bytes` 等接收层计数不在重放范围；
+- 记录值来自当时的 `run.json`，若当时版本的分位数口径与当前不同，差异属于**口径变化**而非复现失败；
+- 本报告不评价链路好坏，只回答"这份数据能否复现出同样的数字"。
+
+## 复现命令
+
+```
+.venv\\Scripts\\python.exe tools\\nlscope.py --reproduce "{run_dir}"
+```
+"""
+
+
+def reproduce_run(run_dir: Path, out_dir: Path | None = None) -> int:
+    """对某个证据目录做只读复现：读日志与 run.json，把报告写到独立目录。"""
+    candidates = sorted(run_dir.glob("initiator_*.log")) or sorted(run_dir.glob("*.log"))
+    if not candidates:
+        print(f"复现失败：{run_dir} 下没有 .log", file=sys.stderr)
+        return 4
+    source = candidates[0]
+    recorded = None
+    run_json = run_dir / "run.json"
+    if run_json.exists():
+        try:
+            recorded = json.loads(run_json.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"警告：run.json 读不了（{exc}），只做重放不做对照", file=sys.stderr)
+    session = load_log(source)
+    # 记录值不在 run.json 里，而在同目录的 initiator_*.json["pc_exact_metrics"]。
+    recorded_metrics = None
+    metric_files = sorted(run_dir.glob("initiator_*.json"))
+    if metric_files:
+        try:
+            recorded_metrics = json.loads(
+                metric_files[0].read_text(encoding="utf-8")).get("pc_exact_metrics")
+        except (OSError, ValueError) as exc:
+            print(f"警告：{metric_files[0].name} 读不了（{exc}），只做重放不做对照", file=sys.stderr)
+    report = reproduce_markdown(session, run_dir, recorded, source, recorded_metrics)
+    target_dir = out_dir if out_dir is not None else Path("out") / "reproduce"
+    target = target_dir / f"{run_dir.name}-reproduce.md"
+    if target.exists():
+        print(f"复现失败：{target} 已存在，拒绝覆盖", file=sys.stderr)
+        return 5
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target.write_text(report, encoding="utf-8")
+    print_summary(session)
+    print(f"已写出 {target}")
+    return 0 if (session.samples or session.adv_records) else 2
 
 
 class ScopeApp:
@@ -189,6 +354,7 @@ class ScopeApp:
         self.port_combo.pack(side="left", padx=(4, 4))
         ttk.Button(controls, text="刷新", command=self.refresh_ports, width=6).pack(side="left", padx=(0, 8))
         ttk.Button(controls, text="开始串口", command=self.start_serial).pack(side="left")
+        ttk.Button(controls, text="开始前检查", command=self.show_preflight).pack(side="left", padx=6)
         ttk.Button(controls, text="打开日志", command=self.open_log).pack(side="left", padx=6)
         ttk.Button(controls, text="停止", command=self.stop).pack(side="left")
         ttk.Button(controls, text="清空", command=self.clear).pack(side="left", padx=6)
@@ -552,6 +718,7 @@ class ScopeApp:
             "pc_sequence": self.session.sample_sequence_metrics(),
             "board_restarts": self.session.board_restarts,
             "analysis_raw_bytes": len(raw_bytes),
+            "capabilities": self.session.capabilities(),
         }
         checks = evaluate_evidence(run_payload, csv_rows)
         run_payload["evidence_checks"] = checks
@@ -787,6 +954,36 @@ class ScopeApp:
         finally:
             self.events.put((source_id, None))
 
+    def _preflight_checks(self, port: str) -> list[dict]:
+        spec = self.experiment_specs.get(self.expected_profile_name.get())
+        expect = None
+        if spec is not None:
+            expect = expected_mapping({spec.name: spec}).get(spec.name)
+        live_aux = [terminal.active_port for terminal in self._live_aux_terminals()
+                    if terminal.is_open and getattr(terminal, "active_port", "")]
+        firmware = bool((self.initiator_firmware.get() or "").strip()
+                        and (self.responder_firmware.get() or "").strip())
+        writable = False
+        try:
+            probe = Path("out")
+            probe.mkdir(parents=True, exist_ok=True)
+            handle = probe / ".preflight.tmp"
+            handle.write_text("x", encoding="utf-8")
+            handle.unlink()
+            writable = True
+        except OSError:
+            writable = False
+        return preflight_items(self.session.signature, expect, port,
+                               live_aux[0] if live_aux else "", firmware, writable)
+
+    def show_preflight(self) -> None:
+        from tkinter import messagebox
+        port = self.port_map.get(self.port.get().strip(), "")
+        checks = self._preflight_checks(port)
+        lines = [f"{'✓' if item['status'] == 'pass' else ('!' if item['status'] == 'warn' else '×')} "
+                 f"{item['name']}：{item['detail']}" for item in checks]
+        messagebox.showinfo("采样前自检", format_preflight(checks) + "\n\n" + "\n".join(lines))
+
     def start_serial(self) -> None:
         try:
             import serial  # type: ignore
@@ -815,7 +1012,11 @@ class ScopeApp:
         self.main_recovery_file = recovery_path(port, "analysis")
         # 只读目录或无写权限时跳过 .raw，采集不能因为落盘失败而中断。
         self.main_raw_journal = RawByteSink(self.main_recovery_file) if self.main_recovery_file is not None else None
-        self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
+        try:
+            self.status.set(format_preflight(self._preflight_checks(port))
+                            + f" | 已打开 {port}，请先复位 COM4，再复位 COM3")
+        except Exception:  # 自检不能挡住采集
+            self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
         self.main_worker = threading.Thread(
             target=self._serial_worker, args=(serial, port, source_id, stop_event), daemon=True
         )
@@ -1031,7 +1232,8 @@ class ScopeApp:
             self._draw_monitor()
             return
         m = self.session.metrics()
-        self.signature.set("平台签名：" + self.session.signature.compact())
+        caps = self.session.capabilities()
+        self.signature.set("平台签名：" + self.session.signature.compact() + " ｜ 能力：" + caps["label"])
         for key, label in zip(self.metric_labels, (
                 "采集时长", "n", "p50精确", "p90精确", "p99精确", "p99.9精确", "max",
                 "jitter", "timeout", "dup", "ooo", "bad", "drop")):
@@ -1069,7 +1271,8 @@ class ScopeApp:
         )
         for key, value in zip(self.metric_vars, values):
             self.metric_vars[key].set(value)
-        self.signature.set("平台签名：" + self.session.signature.compact())
+        caps = self.session.capabilities()
+        self.signature.set("平台签名：" + self.session.signature.compact() + " ｜ 能力：" + caps["label"])
         self._line_chart(self.time_canvas, all_rssi[-1200:], "RSSI 时间序列 · 最近 1200 点 (dBm)")
         self._draw_monitor_devices(devices)
         self._draw_monitor_intervals()
@@ -1189,7 +1392,15 @@ def main() -> int:
     parser.add_argument("--no-boot-gate", action="store_true",
                         help="串口采集不等待本次复位的 boot. 边界（仅接入无该标记的第三方固件时使用）")
     parser.add_argument("--export", type=Path, help="与 --replay/--serial 配合导出 CSV/JSON/Markdown")
+    parser.add_argument("--reproduce", type=Path, metavar="RUN_DIR",
+                        help="只读复现某个证据目录：重放 initiator 日志并与 run.json 逐项对照")
+    parser.add_argument("--reproduce-out", type=Path,
+                        help="复现报告输出目录，默认 out/reproduce")
     args = parser.parse_args()
+    if args.reproduce:
+        if not args.reproduce.is_dir():
+            parser.error(f"--reproduce 需要已存在的证据目录：{args.reproduce}")
+        return reproduce_run(args.reproduce, args.reproduce_out)
     if args.replay and args.serial:
         parser.error("--replay 与 --serial 不能同时使用")
     if args.replay:

@@ -61,7 +61,9 @@ class LineSplitter:
         if not self._pending or self._last_byte_at is None:
             return None
         current = time.monotonic() if now is None else now
-        if current - self._last_byte_at < self.idle_seconds:
+        # 阈值比较留 1µs 容差：monotonic 的基数很大时，(last + 0.3) - last 会
+        # 略小于 0.3，恰好落在 idle_ms 上的调用不应被判成“还没到”。
+        if current - self._last_byte_at < self.idle_seconds - 1e-6:
             return None
         return self._flush_pending()
 

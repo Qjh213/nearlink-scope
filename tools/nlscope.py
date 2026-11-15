@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import queue
 import re
 import subprocess
@@ -24,17 +25,29 @@ from experiment_specs import ExperimentSpec, expected_mapping, load_specs
 from wizard import ExperimentWizard
 from adapters import AdapterSpec, format_import_report, import_csv
 
-APP_VERSION = "M6.0.0"
+APP_VERSION = "M6.0.1"
 
 
 def _force_utf8(streams=None) -> None:
-    """把文本流切到 UTF-8。
+    """把文本流切到 UTF-8；被打包成窗口程序（console=False）时补上空写入器。
 
-    Windows 上控制台/重定向的默认编码可能是 cp1252（CI 里就是），打印中文摘要会抛
-    UnicodeEncodeError，把一次正常的"导出成功"变成崩溃。这里显式声明 UTF-8；
-    没有 reconfigure 的流（如测试里的替身）直接跳过。
+    两件事都为了 CLI 模式不因为"输出"而崩：
+    1. Windows 控制台/重定向的默认编码可能是 cp1252（CI 里就是），打印中文会抛
+       UnicodeEncodeError，把一次正常的"导出成功"变成失败。
+    2. PyInstaller 的窗口模式把 sys.stdout/sys.stderr 置为 None，一句 print 就抛
+       AttributeError；换成等价的空写入器后，CLI 仍能写文件并按退出码报告结果。
+    没有 reconfigure 的流（如测试里的替身）原样跳过。
     """
-    for stream in (sys.stdout, sys.stderr) if streams is None else streams:
+    targets = (sys.stdout, sys.stderr) if streams is None else streams
+    for index, stream in enumerate(targets):
+        if stream is None:
+            if streams is None:
+                sink = open(os.devnull, "w", encoding="utf-8")
+                if index == 0:
+                    sys.stdout = sink
+                else:
+                    sys.stderr = sink
+            continue
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is None:
             continue

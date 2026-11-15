@@ -1253,6 +1253,17 @@ class StdoutEncodingTests(unittest.TestCase):
             sys.stdout = original
         self.assertIn("能力：", raw.getvalue().decode("utf-8"))
 
+    def test_missing_stdout_gets_a_null_writer(self):
+        """PyInstaller 窗口模式把 sys.stdout 置成 None，CLI 里 print 会 AttributeError。"""
+        original = sys.stdout
+        try:
+            sys.stdout = None
+            nlscope._force_utf8()
+            print("窗口程序里打印也不该崩")
+            self.assertTrue(hasattr(sys.stdout, "write"))
+        finally:
+            sys.stdout = original
+
 
 if __name__ == "__main__":
     unittest.main()

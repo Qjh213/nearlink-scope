@@ -26,6 +26,9 @@ class LineSplitter:
         self._pending = bytearray()
         self._last_byte_at: float | None = None
         self.forced_flushes = 0
+        self.idle_flushes = 0
+        self.final_flushes = 0
+        # Splitter never discards bytes; retained for an explicit, testable no-loss invariant.
         self.dropped_bytes = 0
 
     @property
@@ -65,17 +68,18 @@ class LineSplitter:
         # 略小于 0.3，恰好落在 idle_ms 上的调用不应被判成“还没到”。
         if current - self._last_byte_at < self.idle_seconds - 1e-6:
             return None
-        return self._flush_pending()
+        self.idle_flushes += 1
+        return self._take_pending()
 
     def flush(self) -> bytes | None:
         if not self._pending:
             return None
-        return self._flush_pending()
+        self.final_flushes += 1
+        return self._take_pending()
 
-    def _flush_pending(self) -> bytes:
+    def _take_pending(self) -> bytes:
         data = bytes(self._pending)
         self._pending.clear()
-        self.forced_flushes += 1
         return data
 
 
@@ -116,6 +120,37 @@ class LogSink:
         self.close()
 
 
+class RawByteSink:
+    """Crash-resilient append-only byte journal; never decodes or rewrites delimiters."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self._lock = threading.Lock()
+        self._handle = None
+        self._closed = False
+
+    def append(self, data: bytes) -> None:
+        if not data:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            # close() 之后仍可能有读线程的尾块在途；直接丢弃而不是重开
+            # （重开会以 "xb" 撞已存在文件，把关闭竞态变成异常）。
+            if self._closed:
+                return
+            if self._handle is None:
+                self._handle = self.path.open("xb")
+            self._handle.write(data)
+            self._handle.flush()
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            if self._handle is not None:
+                self._handle.close()
+                self._handle = None
+
+
 class SerialReader(threading.Thread):
     """Read raw blocks on one worker thread and publish framed bytes to a queue."""
 
@@ -140,6 +175,7 @@ class SerialReader(threading.Thread):
         self.splitter = LineSplitter(max_pending=max_pending, idle_ms=idle_ms)
         self.serial_factory = serial_factory or serial.Serial
         self.handle = None
+        self.error: BaseException | None = None
 
     def run(self) -> None:
         try:
@@ -171,6 +207,7 @@ class SerialReader(threading.Thread):
                     if tail is not None:
                         self.out.put(tail)
         except BaseException as exc:
+            self.error = exc
             if self.errors is not None:
                 self.errors.put(exc)
         finally:

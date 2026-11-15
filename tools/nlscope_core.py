@@ -25,7 +25,9 @@ class Sample:
     t4_us: int
     rtt_us: int
     bproc_us: int
-    dlt_us: int
+    # 跨两个设备时钟的差值（t4-t3），含未知偏差，不作为时延指标，也不写进 CSV；
+    # None 表示“这一份数据没有该字段”（新导出），0 表示“板端确实报 0”。
+    dlt_us: Optional[int] = None
     wall_time: Optional[datetime] = None
 
 
@@ -88,6 +90,7 @@ class ParsedEvent:
     monitor_counters: Optional[dict[str, int]] = None
     signature_changed: bool = False
     raw_line: str = ""
+    parse_failure: Optional[str] = None
 
 
 class LineParser:
@@ -125,13 +128,37 @@ class LineParser:
         result: dict[str, int] = {}
         for key, value in KV.findall(body):
             try:
-                result[key] = int(value.split("/")[0], 0)
+                parts = value.split("/")
+                parse = lambda item: int(item, 16) if item.lower().startswith(("0x", "-0x")) else int(item, 10)
+                result[key] = parse(parts[0])
+                if len(parts) == 2:
+                    result[f"{key}_max"] = parse(parts[1])
             except ValueError:
                 continue
         return result
 
+    @staticmethod
+    def valid_sample_values(values: list[int]) -> bool:
+        """只校验同一时钟内成立的不变量。
+
+        `dlt_us = t4 - t3` 跨了两个设备的时钟，含未知偏差 δ：B 端重新建链后 δ 可能变成
+        几千万微秒，于是 `dlt_us > rtt_us` 完全正常（2026-11-15 断链实测：2,332 行因此
+        被整行丢弃）。用 rtt 去约束 dlt 会把**有效样本**判成坏行，所以这个上限不能有。
+        """
+        if len(values) != 6:
+            return False
+        seq, t1_us, t4_us, rtt_us, bproc_us, _dlt_us = values
+        return (
+            0 <= seq <= 0xFFFF
+            and all(0 <= value <= 0xFFFFFFFF for value in values[1:])
+            and rtt_us == ((t4_us - t1_us) & 0xFFFFFFFF)
+            and bproc_us <= rtt_us
+        )
+
     def feed(self, line: str, received_at: Optional[datetime] = None) -> ParsedEvent:
-        original = line.rstrip("\r\n")
+        # CRLF 行以 CR 为界：切分后下一行的开头会留下 LF，必须两端都去掉，
+        # 否则 raw_line 变成 "[stamp]\n正文"，导出时时间戳与正文被拆成两行。
+        original = line.strip("\r\n")
         stamp, body = self._timestamp_and_body(line)
         had_source_timestamp = stamp is not None
         if stamp is None:
@@ -141,6 +168,8 @@ class LineParser:
             millis = received_at.microsecond // 1000
             raw_line = f"[{received_at:%Y-%m-%d_%H:%M:%S}:{millis:03d}]{original}"
         event = ParsedEvent(raw_line=raw_line)
+        if "\ufffd" in body:
+            event.parse_failure = "decode"
         if body.startswith("S,"):
             parts = body.split(",")
             if len(parts) >= 7:
@@ -148,16 +177,12 @@ class LineParser:
                     values = [int(x) for x in parts[1:7]]
                     seq, t1_us, t4_us, rtt_us, bproc_us, dlt_us = values
                     # UART乱码偶尔仍可能组成“全是数字”的一行；用固件输出不变量拒绝伪样本。
-                    valid = (
-                        0 <= seq <= 0xFFFF
-                        and all(0 <= value <= 0xFFFFFFFF for value in values[1:])
-                        and rtt_us == ((t4_us - t1_us) & 0xFFFFFFFF)
-                        and bproc_us <= rtt_us and dlt_us <= rtt_us
-                    )
-                    if valid:
+                    if self.valid_sample_values(values):
                         event.sample = Sample(*values, wall_time=stamp)
                 except ValueError:
                     pass
+            if event.sample is None:
+                event.parse_failure = "sample"
             return event
 
         if body.startswith("ADV,"):
@@ -179,6 +204,8 @@ class LineParser:
                                               data_status, data_len, payload, stamp)
                 except ValueError:
                     pass
+            if event.adv is None:
+                event.parse_failure = "adv"
             return event
 
         if body.startswith("# MON"):
@@ -230,11 +257,17 @@ class LineParser:
 
 
 def percentile(values: list[int], p: float) -> Optional[int]:
+    """NumPy-compatible linear percentile, rounded to the nearest microsecond."""
     if not values:
         return None
     ordered = sorted(values)
-    index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * p))))
-    return ordered[index]
+    position = min(len(ordered) - 1, max(0.0, (len(ordered) - 1) * p))
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return ordered[lower]
+    value = ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
+    return int(round(value))
 
 
 @dataclass
@@ -243,6 +276,15 @@ class Session:
     samples: list[Sample] = field(default_factory=list)
     adv_records: list[AdvRecord] = field(default_factory=list)
     counters: dict[str, int] = field(default_factory=dict)
+    sum_frames_seen: int = 0
+    latest_sum_sample_count: Optional[int] = None
+    # 样本序号回退 = 板卡在一次会话中重启过。只认这个信号：
+    # SUM 的 n 回退不能单独作证——打开串口时缓冲区里常残留上一次上电的 SUM，
+    # 会造成“样本只有一次上电、却被判成多次”的假阳性（2026-11-15 全量回归发现）。
+    board_restarts: int = 0
+    csv_rows_total: int = 0
+    csv_rows_skipped: int = 0
+    parse_failures: dict[str, int] = field(default_factory=dict)
     monitor_counters: dict[str, int] = field(default_factory=dict)
     raw_lines: list[str] = field(default_factory=list)
 
@@ -251,13 +293,23 @@ class Session:
         if event.raw_line:
             self.raw_lines.append(event.raw_line)
         if event.sample:
+            previous = self.samples[-1].seq if self.samples else None
             self.samples.append(event.sample)
+            # 序号回退 32 以上只可能是板卡重启；回退一两格是串口乱序，不能当重启。
+            if previous is not None:
+                delta = (event.sample.seq - previous) & 0xFFFF
+                if delta >= 0x8000 and (0x10000 - delta) >= 32:
+                    self.board_restarts += 1
         if event.adv:
             self.adv_records.append(event.adv)
         if event.counters:
             self.counters = event.counters
+            self.sum_frames_seen += 1
+            self.latest_sum_sample_count = len(self.samples)
         if event.monitor_counters:
             self.monitor_counters = event.monitor_counters
+        if event.parse_failure:
+            self.parse_failures[event.parse_failure] = self.parse_failures.get(event.parse_failure, 0) + 1
 
     def monitor_metrics(self) -> dict[str, object]:
         """Aggregate passive reports without merging different SLE event types."""
@@ -331,16 +383,58 @@ class Session:
             "jitter_us": round(statistics.mean(adjacent), 1) if adjacent else 0,
             "bproc_mean_us": round(statistics.mean(bproc), 1) if bproc else None,
             "sample_span_s": self.sample_span_seconds(),
+            "board_sample_span_s": self.board_sample_span_seconds(),
         }
-        for key in ("sent", "recv", "to", "dup", "ooo", "bad", "drop", "loss_ppm"):
-            result[key] = self.counters.get(key, 0)
+        for key in ("sent", "recv", "to", "dup", "ooo", "bad", "drop", "rx_drop",
+                    "send_err", "cfm_err", "dlt_neg", "loss_ppm"):
+            result[key] = self.counters.get(key)
+        result["sum_frames_seen"] = self.sum_frames_seen
+        result["samples_since_latest_sum"] = (
+            None if self.latest_sum_sample_count is None
+            else len(self.samples) - self.latest_sum_sample_count
+        )
+        result["csv_rows_total"] = self.csv_rows_total
+        result["csv_rows_skipped"] = self.csv_rows_skipped
+        result["parse_failures"] = dict(self.parse_failures)
+        result["pc_sequence"] = self.sample_sequence_metrics()
+        result["board_restarts"] = self.board_restarts
         return result
+
+    def sample_sequence_metrics(self) -> dict[str, int]:
+        gaps = duplicates = out_of_order = wraps = 0
+        for previous, current in zip(self.samples, self.samples[1:]):
+            delta = (current.seq - previous.seq) & 0xFFFF
+            if delta == 0:
+                duplicates += 1
+            elif delta < 0x8000:
+                if current.seq < previous.seq:
+                    wraps += 1
+                if delta > 1:
+                    gaps += delta - 1
+            else:
+                out_of_order += 1
+        return {"gaps": gaps, "duplicates": duplicates, "out_of_order": out_of_order,
+                "wraps": wraps}
 
     def sample_span_seconds(self) -> float:
         stamps = [row.wall_time for row in self.samples if row.wall_time is not None]
         if len(stamps) < 2:
             return 0.0
         return max(0.0, (max(stamps) - min(stamps)).total_seconds())
+
+    def board_sample_span_seconds(self) -> Optional[float]:
+        """Elapsed initiator time, summing uint32 deltas only across forward sample order.
+
+        板卡重启过就返回 None：此时样本来自不同次上电，跨重启累加的时间没有物理意义。
+        """
+        if self.board_restarts:
+            return None
+        elapsed_us = 0
+        for previous, current in zip(self.samples, self.samples[1:]):
+            seq_delta = (current.seq - previous.seq) & 0xFFFF
+            if 0 < seq_delta < 0x8000:
+                elapsed_us += (current.t1_us - previous.t1_us) & 0xFFFFFFFF
+        return elapsed_us / 1_000_000.0
 
     def monitor_span_seconds(self) -> float:
         stamps = [row.wall_time for row in self.adv_records if row.wall_time is not None]
@@ -367,8 +461,13 @@ class Session:
         csv_path = directory / f"{stem}.csv"
         meta_path = directory / f"{stem}.json"
         report_path = directory / f"{stem}.md"
-        raw_path.write_text("\n".join(self.raw_lines) + ("\n" if self.raw_lines else ""), encoding="utf-8")
-        with csv_path.open("w", newline="", encoding="utf-8-sig") as handle:
+        existing = [path for path in (raw_path, csv_path, meta_path, report_path) if path.exists()]
+        if existing:
+            names = ", ".join(path.name for path in existing)
+            raise FileExistsError(f"拒绝覆盖既有实验文件：{names}")
+        with raw_path.open("x", encoding="utf-8") as handle:
+            handle.write("\n".join(self.raw_lines) + ("\n" if self.raw_lines else ""))
+        with csv_path.open("x", newline="", encoding="utf-8-sig") as handle:
             writer = csv.writer(handle)
             if self.adv_records and not self.samples:
                 writer.writerow(("seq", "t_us", "event", "addr_id", "rssi_dbm", "data_status",
@@ -378,14 +477,19 @@ class Session:
                                      row.data_status, row.data_len, row.payload_hex,
                                      row.wall_time.isoformat(timespec="milliseconds") if row.wall_time else ""))
             else:
-                writer.writerow(("seq", "t1_us", "t4_us", "rtt_us", "bproc_us", "dlt_us", "wall_time"))
+                writer.writerow(("seq", "t1_us", "t4_us", "rtt_us", "bproc_us", "wall_time"))
                 for row in self.samples:
-                    writer.writerow((row.seq, row.t1_us, row.t4_us, row.rtt_us, row.bproc_us, row.dlt_us,
+                    writer.writerow((row.seq, row.t1_us, row.t4_us, row.rtt_us, row.bproc_us,
                                      row.wall_time.isoformat(timespec="milliseconds") if row.wall_time else ""))
-        payload = {"platform_signature": asdict(self.signature), "pc_exact_metrics": self.metrics(),
-                   "monitor_metrics": self.monitor_metrics(), "board_latest_sum": self.counters}
-        meta_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        report_path.write_text(self.markdown_report(), encoding="utf-8")
+        metrics = self.metrics()
+        payload = {"platform_signature": asdict(self.signature), "pc_exact_metrics": metrics,
+                   "monitor_metrics": self.monitor_metrics(), "board_latest_sum": self.counters,
+                   "sum_frames_seen": self.sum_frames_seen,
+                   "samples_since_latest_sum": metrics["samples_since_latest_sum"]}
+        with meta_path.open("x", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        with report_path.open("x", encoding="utf-8") as handle:
+            handle.write(self.markdown_report())
         return raw_path, csv_path, meta_path, report_path
 
     def markdown_report(self) -> str:
@@ -395,6 +499,19 @@ class Session:
         def ms(key: str) -> str:
             value = m[key]
             return "—" if value is None else f"{float(value) / 1000.0:.3f} ms"
+        def seconds(key: str) -> str:
+            value = m.get(key)
+            return "—" if value is None else f"{float(value):.3f}"
+
+        def counter(key: str) -> str:
+            value = m[key]
+            return "—" if value is None else str(value)
+        sum_status = (
+            "未收到板端 SUM；板端异常计数未知，不能解释为零"
+            if self.sum_frames_seen == 0
+            else f"已收到 {self.sum_frames_seen} 帧；最近 SUM 后还有 "
+                 f"{m['samples_since_latest_sum']} 条样本"
+        )
         return f"""# LinkScope 实验报告
 
 ## 平台签名
@@ -406,7 +523,9 @@ class Session:
 | 指标 | 数值 |
 |---|---:|
 | 有效样本 | {m['n']} |
-| 样本记录时长 | {float(m['sample_span_s']):.3f} s |
+| 样本记录时长 | {seconds('sample_span_s')} s |
+| 板端发包时间跨度 | {seconds('board_sample_span_s')} s |
+| 板卡重启次数（按 SUM 的 n 回退判定） | {m['board_restarts']} |
 | RTT p50 | {ms('p50_us')} |
 | RTT p90 | {ms('p90_us')} |
 | RTT p99 | {ms('p99_us')} |
@@ -414,8 +533,16 @@ class Session:
 | RTT max | {ms('max_us')} |
 | RTT mean | {ms('mean_us')} |
 | jitter | {ms('jitter_us')} |
-| timeout / duplicate / out-of-order | {m['to']} / {m['dup']} / {m['ooo']} |
-| bad / drop | {m['bad']} / {m['drop']} |
+| timeout / duplicate / out-of-order | {counter('to')} / {counter('dup')} / {counter('ooo')} |
+| bad / ring drop / rx drop / send error / write-cfm error | {counter('bad')} / {counter('drop')} / {counter('rx_drop')} / {counter('send_err')} / {counter('cfm_err')} |
+| 方向时延负值归零计数（`dlt` 跨时钟，不可作为时延） | {counter('dlt_neg')} |
+| CSV总行数 / 跳过坏行 | {m['csv_rows_total']} / {m['csv_rows_skipped']} |
+| PC解析失败 | `{json.dumps(m['parse_failures'], ensure_ascii=False)}` |
+| PC序列诊断 | `{json.dumps(m['pc_sequence'], ensure_ascii=False)}` |
+
+## 板端计数器状态
+
+{sum_status}
 
 ## 板端最近一条 SUM
 
@@ -425,7 +552,9 @@ class Session:
 
 ## 口径
 
-RTT 使用 initiator 板端同一时钟的 `t4-t1`；PC 串口到达时间不参与链路计时。PC 分位数由已落盘原始样本精确排序得到；板端 SUM 使用内存受限的对数直方图插值，两者允许存在小幅差异。`jitter` 在两端均定义为相邻 RTT 差分绝对值的平均值。本报告描述当前固件、SDK、配置与环境，不外推为协议标准的固定性能。
+- PC 分位数使用线性插值（与 NumPy 默认 percentile 一致），最终四舍五入到 1 µs。
+
+RTT 使用 initiator 板端同一时钟的 `t4-t1`；PC 串口到达时间不参与链路计时。PC 分位数由已落盘原始样本精确排序得到；板端 SUM 使用内存受限的对数直方图插值，两者允许存在小幅差异。`jitter` 在两端均定义为相邻 RTT 差分绝对值的平均值。板端未上报或当前固件不支持的计数显示为 `—`，绝不等同于实测零。本报告描述当前固件、SDK、配置与环境，不外推为协议标准的固定性能。
 """
 
     def monitor_markdown_report(self) -> str:
@@ -478,6 +607,7 @@ def load_csv(path: Path) -> Session:
     session.signature.source = str(path)
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         for row in csv.DictReader(handle):
+            session.csv_rows_total += 1
             try:
                 wall = datetime.fromisoformat(row["wall_time"]) if row.get("wall_time") else None
                 if "addr_id" in row:
@@ -488,12 +618,17 @@ def load_csv(path: Path) -> Session:
                         payload_hex=row["payload_hex"].lower(), wall_time=wall,
                     ))
                 else:
-                    session.samples.append(Sample(
-                        seq=int(row["seq"]), t1_us=int(row["t1_us"]), t4_us=int(row["t4_us"]),
-                        rtt_us=int(row["rtt_us"]), bproc_us=int(row["bproc_us"]), dlt_us=int(row["dlt_us"]),
-                        wall_time=wall,
-                    ))
+                    base = [int(row[key]) for key in
+                            ("seq", "t1_us", "t4_us", "rtt_us", "bproc_us")]
+                    # 旧证据文件带 dlt_us 列（跨时钟差值，不可用于比较），新导出不再写；
+                    # 两种都要能读，缺列时把 dlt 记为 None 而不是 0，避免伪造“测到 0”。
+                    dlt_raw = row.get("dlt_us")
+                    dlt = int(dlt_raw) if dlt_raw not in (None, "") else None
+                    if not LineParser.valid_sample_values(base + [dlt if dlt is not None else 0]):
+                        raise ValueError("sample invariant failed")
+                    session.samples.append(Sample(*base, dlt_us=dlt, wall_time=wall))
             except (KeyError, TypeError, ValueError):
+                session.csv_rows_skipped += 1
                 continue
     meta_path = path.with_suffix(".json")
     if meta_path.exists():
@@ -504,6 +639,13 @@ def load_csv(path: Path) -> Session:
             session.signature = PlatformSignature(**{k: v for k, v in signature.items()
                                                      if k in PlatformSignature.__dataclass_fields__})
             session.counters = payload.get("board_latest_sum", {})
+            failures = payload.get("pc_exact_metrics", {}).get("parse_failures", {})
+            if isinstance(failures, dict):
+                session.parse_failures = {str(k): int(v) for k, v in failures.items()}
+            session.sum_frames_seen = int(payload.get("sum_frames_seen", 1 if session.counters else 0))
+            lag = payload.get("samples_since_latest_sum")
+            if session.sum_frames_seen and isinstance(lag, int):
+                session.latest_sum_sample_count = max(0, len(session.samples) - lag)
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             pass
     return session
@@ -515,3 +657,110 @@ def feed_lines(lines: Iterable[str], source: str = "memory") -> Session:
     for line in lines:
         session.add(parser.feed(line), parser.signature)
     return session
+
+
+def count_csv_rows(path: Path | str) -> int:
+    """已导出 CSV 的数据行数（不含表头）；读不到返回 -1，由调用方区分“没检查”与“0 行”。"""
+    try:
+        with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = sum(1 for _ in csv.reader(handle))
+    except OSError:
+        return -1
+    return max(0, rows - 1)
+
+
+def evaluate_evidence(record: dict, csv_rows: int | None = None) -> dict:
+    """导出后自检：只陈述可比对的事实，不给“链路稳不稳”的结论。
+
+    fail 表示证据本身不成立（行数与样本数对不上）；warn 表示某项证据缺失或存在
+    可解释的异常（缺口、坏行、未上报 SUM），需要人看一眼再决定能否入库。
+    """
+    items: list[dict] = []
+
+    def add(name: str, status: str, detail: str) -> None:
+        items.append({"name": name, "status": status, "detail": detail})
+
+    analysis = record.get("analysis_samples")
+    if csv_rows is None:
+        add("csv_rows", "warn", "未提供 CSV 行数，样本数一致性未检查")
+    elif analysis is None:
+        add("csv_rows", "warn", f"缺少 analysis_samples，CSV 实有 {csv_rows} 行")
+    elif csv_rows == analysis:
+        add("csv_rows", "pass", f"CSV {csv_rows} 行 == 样本数 {analysis}")
+    else:
+        add("csv_rows", "fail", f"CSV {csv_rows} 行 != 样本数 {analysis}")
+
+    sequence = record.get("pc_sequence") or {}
+    gaps = int(sequence.get("gaps") or 0)
+    duplicates = int(sequence.get("duplicates") or 0)
+    out_of_order = int(sequence.get("out_of_order") or 0)
+    restarts = int(record.get("board_restarts") or 0)
+    if not analysis:
+        add("sequence", "warn", "本轮没有有效样本")
+    elif restarts:
+        add("sequence", "warn",
+            f"板卡重启 {restarts} 次，样本来自 {restarts + 1} 次上电，"
+            f"不可当作单轮：gaps={gaps} dup={duplicates} ooo={out_of_order}")
+    elif gaps or duplicates or out_of_order:
+        add("sequence", "warn", f"gaps={gaps} dup={duplicates} ooo={out_of_order}")
+    else:
+        add("sequence", "pass", "PC 端序号连续、无重复、无乱序")
+
+    failures = record.get("parse_failures") or {}
+    parsed = sum(int(value) for value in failures.values() if isinstance(value, int))
+    if parsed:
+        add("parse", "warn", f"坏行 {parsed} 条：{json.dumps(failures, ensure_ascii=False)}")
+    else:
+        add("parse", "pass", "没有无法解析的行")
+
+    signature = record.get("platform_signature") or {}
+    if signature.get("cfg") is None:
+        add("signature", "warn", "平台签名不完整，无法核对本轮实验配置")
+    else:
+        add("signature", "pass", f"cfg={signature.get('cfg')} role={signature.get('role')}")
+
+    if not record.get("sum_frames_seen"):
+        add("board_sum", "warn", "板端未上报 # SUM：板端计数器未知，不能当作零")
+    else:
+        add("board_sum", "pass", f"收到 {record.get('sum_frames_seen')} 帧 SUM")
+
+    identity = record.get("firmware_identity") or {}
+    missing = [name for name, item in identity.items()
+               if not item or item.get("status") != "provided"]
+    inherited = [name for name, item in identity.items() if item and item.get("inherited")]
+    if identity and not missing and not inherited:
+        add("firmware", "pass", "两端固件哈希齐全，且都是本轮登记")
+    elif identity and not missing:
+        add("firmware", "warn",
+            f"沿用上一会话登记的固件路径（{', '.join(inherited)}），本轮没有重新确认")
+    else:
+        add("firmware", "warn", f"固件身份缺失：{', '.join(missing) if missing else '未填写'}")
+
+    source = record.get("source_identity") or {}
+    # run.json 写的是 git_head；保留 head 兼容外部构造的最小 record。
+    head = str(source.get("git_head") or source.get("head") or "")
+    if head:
+        add("source", "pass", f"git HEAD {head[:12]}{'（有未提交改动）' if source.get('git_dirty', source.get('dirty')) else ''}")
+    else:
+        add("source", "warn", "没有代码身份（git HEAD 缺失），复核时无法定位版本")
+
+    raw_bytes = record.get("analysis_raw_bytes")
+    if raw_bytes:
+        add("raw_bytes", "pass", f"{raw_bytes} 字节原始字节")
+    else:
+        add("raw_bytes", "warn", "没有 .raw 原始字节，逐字节复核不可能")
+
+    failed = [item for item in items if item["status"] == "fail"]
+    warned = [item for item in items if item["status"] == "warn"]
+    status = "fail" if failed else ("warn" if warned else "pass")
+    return {"status": status, "items": items}
+
+
+def format_evidence(checks: dict) -> str:
+    """把自检结果压成一行给控制台/弹窗用。"""
+    bad = [item for item in checks.get("items", []) if item.get("status") != "pass"]
+    head = f"自检：{checks.get('status', 'unknown').upper()}"
+    if not bad:
+        return head + "（全部通过）"
+    return head + "；" + "；".join(f"{item['name']}={item['status']} {item['detail']}"
+                                   for item in bad)

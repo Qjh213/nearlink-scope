@@ -8,7 +8,7 @@ from pathlib import Path
 
 import serial
 
-from serial_reader import LineSplitter, LogSink, SerialReader
+from serial_reader import LineSplitter, LogSink, RawByteSink, SerialReader
 
 
 class FakeSerial:
@@ -60,6 +60,8 @@ class SplitterAcceptanceTests(unittest.TestCase):
         self.assertEqual(splitter.feed(b"boot."), [])
         self.assertEqual(splitter.flush_idle(splitter._last_byte_at + 0.300), b"boot.")
         self.assertEqual(splitter.pending, b"")
+        self.assertEqual(splitter.idle_flushes, 1)
+        self.assertEqual(splitter.forced_flushes, 0)
 
     def test_05_binary_bytes_are_preserved(self):
         splitter = LineSplitter()
@@ -151,6 +153,27 @@ class SplitterAcceptanceTests(unittest.TestCase):
                 path.read_bytes(),
                 stamp + b"with-cr\r\r\n" + stamp + b"idle-half\r\n",
             )
+
+    def test_14_raw_byte_sink_preserves_binary_and_refuses_overwrite(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recovery.raw"
+            sink = RawByteSink(path)
+            sink.append(b"\x00\xff\r")
+            sink.append(b"\nmore")
+            sink.close()
+            self.assertEqual(path.read_bytes(), b"\x00\xff\r\nmore")
+            other = RawByteSink(path)
+            with self.assertRaises(FileExistsError):
+                other.append(b"x")
+
+    def test_15_raw_byte_sink_ignores_late_writes_after_close(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recovery.raw"
+            sink = RawByteSink(path)
+            sink.append(b"before")
+            sink.close()
+            sink.append(b"late-tail")   # 关闭竞态：读线程尾块必须被静默丢弃，不能抛错
+            self.assertEqual(path.read_bytes(), b"before")
 
 
 if __name__ == "__main__":

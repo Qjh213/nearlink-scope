@@ -1,13 +1,19 @@
 import queue
+import csv
+import hashlib
 import tempfile
 import time
 import threading
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 
-from nlscope_core import LineParser, feed_lines, load_log
-from nlscope import M5_PROFILES, ScopeApp, discover_serial_ports
+from nlscope_core import (LineParser, Session, count_csv_rows, evaluate_evidence, feed_lines,
+                          format_evidence, load_csv, load_log)
+from nlscope import (M5_PROFILES, ScopeApp, discover_serial_ports, export_cli, file_identity,
+                     repository_identity)
+from experiment_specs import ExperimentSpec, expected_mapping, load_specs
 import serial_terminal
 from serial_terminal import (BootSessionGate, SerialLineAccumulator, SerialSettings, SerialTerminalWindow,
                              encode_outbound, format_received, is_board_boot_line,
@@ -237,7 +243,7 @@ class ParserTests(unittest.TestCase):
         metrics = session.monitor_metrics()
         self.assertEqual(metrics["n"], 3)
         device = metrics["devices"]["867ec3df"]
-        self.assertEqual(device["rssi_p50_dbm"], -50)
+        self.assertEqual(device["rssi_p50_dbm"], -45)
         self.assertEqual(device["invalid_rssi"], 1)
         # Event 3 crosses a uint32 timer wrap: (14 - 0xfffffffA) mod 2^32 = 20 us.
         self.assertEqual(device["events"]["3"]["interval_p50_us"], 20)
@@ -266,7 +272,7 @@ class ParserTests(unittest.TestCase):
         app.parser = LineParser()
         class Expected:
             def get(self):
-                return "不校验预期实验"
+                return "自动识别平台签名"
         app.expected_profile_name = Expected()
         stale = app.parser.feed("ADV,99,100,3,12345678,-40,0,1,aa\n")
         self.assertFalse(app._apply_live_gate(stale))
@@ -305,6 +311,18 @@ class ParserTests(unittest.TestCase):
         signature.mtu, signature.interval = 520, 24
         fresh = app.parser.feed("S,2,40,60,20,3,4\n")
         self.assertTrue(app._apply_live_gate(fresh))
+
+    def test_versioned_experiment_specs_are_external_and_valid(self):
+        specs = load_specs(Path(__file__).with_name("experiment_specs.json"))
+        self.assertEqual(specs["仅原始日志（不进入统计）"].mode, "raw")
+        self.assertEqual(specs["自动识别平台签名"].mode, "auto")
+        self.assertEqual(specs["M5 cfg522 Rate 25Hz"].expect["rate_hz"], 25)
+
+    def test_repository_identity_is_explicit(self):
+        identity = repository_identity()
+        self.assertIn(identity["source"], ("git", "unavailable"))
+        self.assertIn("git_head", identity)
+        self.assertIn("git_dirty", identity)
 
     def test_malformed_adv_is_rejected(self):
         session = feed_lines([
@@ -419,11 +437,42 @@ class ParserTests(unittest.TestCase):
         metrics = session.metrics()
         self.assertEqual(metrics["n"], 3)
         self.assertEqual(metrics["p50_us"], 12000)
-        self.assertEqual(metrics["p99_us"], 15000)
+        self.assertEqual(metrics["p99_us"], 14940)
         self.assertEqual(metrics["jitter_us"], 2500.0)
         self.assertEqual(metrics["to"], 1)
         self.assertEqual(metrics["dup"], 1)
         self.assertEqual(metrics["sample_span_s"], 0.02)
+        self.assertEqual(metrics["sum_frames_seen"], 1)
+        self.assertEqual(metrics["samples_since_latest_sum"], 0)
+
+    def test_missing_sum_is_unknown_not_zero(self):
+        session = feed_lines(["S,1,10,30,20,3,4\n"])
+        metrics = session.metrics()
+        for key in ("sent", "recv", "to", "dup", "ooo", "bad", "drop", "rx_drop", "send_err",
+                    "cfm_err", "dlt_neg"):
+            self.assertIsNone(metrics[key], key)
+        self.assertEqual(metrics["sum_frames_seen"], 0)
+        self.assertIsNone(metrics["samples_since_latest_sum"])
+        self.assertIn("未收到板端 SUM", session.markdown_report())
+
+    def test_percentile_uses_linear_interpolation(self):
+        from nlscope_core import percentile
+        self.assertEqual([percentile([1, 2, 3, 4], p) for p in (.5, .9, .99)], [2, 4, 4])
+        self.assertEqual(percentile([0, 100], .9), 90)
+
+    def test_missing_counter_in_sum_remains_unknown(self):
+        session = feed_lines([
+            "S,1,10,30,20,3,4\n",
+            "# SUM n=1 sent=1 recv=1 to=0 dup=0 bad=0 drop=0 loss_ppm=0\n",
+            "S,2,40,60,20,3,4\n",
+        ])
+        metrics = session.metrics()
+        self.assertEqual(metrics["to"], 0)
+        self.assertIsNone(metrics["ooo"])
+        self.assertIsNone(metrics["rx_drop"])
+        self.assertIsNone(metrics["send_err"])
+        self.assertEqual(metrics["sum_frames_seen"], 1)
+        self.assertEqual(metrics["samples_since_latest_sum"], 1)
 
     def test_plain_csv_without_qcom_timestamp(self):
         parser = LineParser()
@@ -434,7 +483,9 @@ class ParserTests(unittest.TestCase):
 
     def test_numeric_but_corrupt_sample_is_rejected(self):
         parser = LineParser()
-        self.assertIsNone(parser.feed("S,1,100,120,999,3,4\n").sample)
+        bad = parser.feed("S,1,100,120,999,3,4\n")
+        self.assertIsNone(bad.sample)
+        self.assertEqual(bad.parse_failure, "sample")
         self.assertIsNone(parser.feed("S,70000,100,120,20,3,4\n").sample)
         self.assertIsNone(parser.feed("S,1,100,120,20,30,4\n").sample)
         # uint32 timer wrap remains valid.
@@ -470,6 +521,326 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(len(loaded.samples), 3)
             self.assertEqual(loaded.signature.link, "ble-write_req")
             self.assertEqual(loaded.metrics()["sample_span_s"], 0.02)
+
+    def test_exported_log_lines_all_start_with_timestamp(self):
+        # 真实串口按 CR 切分，"\r\n" 的 LF 会留在下一行开头；如果只 rstrip，
+        # raw_line 变成 "[stamp]\n正文"，导出按行 join 后一半行没有时间戳。
+        parser = LineParser()
+        session = Session()
+        stamp = datetime(2026, 11, 10, 20, 0, 0)
+        for line in ("\nboot.\r", "\nFlash Init Fail!\r", "\nS,1,1000,11000,10000,12,3\r"):
+            session.add(parser.feed(line, received_at=stamp), parser.signature)
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path, *_ = session.export(Path(directory), "demo")
+            lines = raw_path.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(lines)
+        self.assertEqual([line for line in lines if not line.startswith("[")], [])
+        self.assertIn("[2026-11-10_20:00:00:000]boot.", lines)
+        self.assertIn("[2026-11-10_20:00:00:000]S,1,1000,11000,10000,12,3", lines)
+
+    def test_export_refuses_to_overwrite_evidence(self):
+        session = feed_lines(LINES)
+        with tempfile.TemporaryDirectory() as directory:
+            session.export(Path(directory), "demo")
+            with self.assertRaises(FileExistsError):
+                session.export(Path(directory), "demo")
+
+    def test_csv_replay_counts_and_rejects_corrupt_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad.csv"
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(("seq", "t1_us", "t4_us", "rtt_us", "bproc_us", "dlt_us", "wall_time"))
+                writer.writerow((1, 10, 30, 20, 3, 4, ""))
+                writer.writerow((2, 40, 60, 999, 3, 4, ""))
+                writer.writerow((70000, 40, 60, 20, 3, 4, ""))
+                writer.writerow((3, "bad", 60, 20, 3, 4, ""))
+            session = load_log(path)
+            self.assertEqual(len(session.samples), 1)
+            self.assertEqual(session.metrics()["csv_rows_total"], 4)
+            self.assertEqual(session.metrics()["csv_rows_skipped"], 3)
+
+    def test_sum_slash_fields_preserve_max_and_decimal_leading_zero(self):
+        session = feed_lines(["# SUM n=050 bproc=41/77 dlt=08/09 to=0\n"])
+        self.assertEqual(session.counters["n"], 50)
+        self.assertEqual(session.counters["bproc"], 41)
+        self.assertEqual(session.counters["bproc_max"], 77)
+        self.assertEqual(session.counters["dlt"], 8)
+        self.assertEqual(session.counters["dlt_max"], 9)
+
+    def test_sample_sequence_metrics_handle_uint16_wrap(self):
+        session = feed_lines([
+            "S,65534,10,30,20,3,4\n",
+            "S,65535,40,60,20,3,4\n",
+            "S,0,70,90,20,3,4\n",
+            "S,2,100,120,20,3,4\n",
+        ])
+        self.assertEqual(session.sample_sequence_metrics(), {
+            "gaps": 1, "duplicates": 0, "out_of_order": 0, "wraps": 1,
+        })
+
+    def test_sample_sequence_metrics_report_out_of_order_and_duplicates(self):
+        session = feed_lines([
+            "S,10,10,30,20,3,4\n",
+            "S,10,40,60,20,3,4\n",
+            "S,2,70,90,20,3,4\n",
+        ])
+        self.assertEqual(session.sample_sequence_metrics(), {
+            "gaps": 0, "duplicates": 1, "out_of_order": 1, "wraps": 0,
+        })
+
+    def test_board_span_uses_board_clock_and_ignores_backwards_steps(self):
+        session = feed_lines([
+            "S,1,1000,2000,1000,3,4\n",
+            "S,2,101000,102000,1000,3,4\n",
+            "S,1,103000,104000,1000,3,4\n",
+            "S,3,105000,106000,1000,3,4\n",
+        ])
+        # 100 ms 前进 + 回退步不计 + 回退后再前进的 2 ms（t1 从 103000 到 105000）
+        self.assertAlmostEqual(session.board_sample_span_seconds(), 0.102, places=6)
+
+    def test_board_span_is_zero_with_a_single_sample(self):
+        session = feed_lines(["S,1,1000,2000,1000,3,4\n"])
+        self.assertEqual(session.board_sample_span_seconds(), 0.0)
+
+    def test_board_restarts_counts_sample_sequence_backjump_and_blanks_board_span(self):
+        session = feed_lines([
+            "[2026-11-10_20:00:00:010]S,1200,1000,11000,10000,12,3\n",
+            "[2026-11-10_20:00:00:011]S,1201,14000,24000,10000,12,3\n",
+            "[2026-11-10_20:00:00:020]S,1,27000,37000,10000,12,3\n",
+            "[2026-11-10_20:00:00:021]S,2,40000,50000,10000,12,3\n",
+        ])
+        self.assertEqual(session.board_restarts, 1)
+        self.assertEqual(session.metrics()["board_restarts"], 1)
+        # 跨重启累加板端时长没有物理意义，必须是 None 而不是一个看起来合理的数。
+        self.assertIsNone(session.board_sample_span_seconds())
+
+    def test_sum_regression_alone_is_not_a_restart(self):
+        # 打开串口时缓冲区会残留上一次上电的 SUM（n 很大），随后才是本次的 n=200。
+        # 样本序号连续说明只有一次上电，不能因为 SUM 回退就判成会话混杂。
+        session = feed_lines([
+            "[2026-11-10_20:00:00:010]# SUM n=2886200 p50=14867 sent=9 recv=9 to=0\n",
+            "[2026-11-10_20:00:00:011]# SUM n=200 p50=14867 sent=9 recv=9 to=0\n",
+            "[2026-11-10_20:00:00:020]S,1,1000,11000,10000,12,3\n",
+            "[2026-11-10_20:00:00:030]S,2,20000,30000,10000,12,3\n",
+        ])
+        self.assertEqual(session.board_restarts, 0)
+        self.assertIsNotNone(session.board_sample_span_seconds())
+
+    def test_file_identity_hashes_bytes_not_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "linkscope-fake.fwpkg"
+            package.write_bytes(b"firmware-bytes")
+            identity = file_identity(str(package))
+            self.assertEqual(identity["status"], "provided")
+            self.assertEqual(identity["sha256"], hashlib.sha256(b"firmware-bytes").hexdigest())
+            self.assertEqual(identity["size"], 14)
+            self.assertEqual(identity["path"], str(package.resolve()))
+
+    def test_file_identity_is_explicit_when_not_provided_or_missing(self):
+        self.assertEqual(file_identity("")["status"], "not_provided")
+        missing = file_identity(str(Path(tempfile.gettempdir()) / "no-such-package.fwpkg"))
+        self.assertEqual(missing["status"], "unreadable")
+        self.assertIsNone(missing["sha256"])
+
+    def test_specs_reject_bad_schema_and_duplicate_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bad = Path(directory) / "bad.json"
+            bad.write_text('{"schema_version": 99, "profiles": []}', encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_specs(bad)
+            duplicate = Path(directory) / "dup.json"
+            duplicate.write_text(
+                '{"schema_version": 1, "profiles": ['
+                '{"name": "a", "mode": "auto"}, {"name": "a", "mode": "auto"}]}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                load_specs(duplicate)
+            measure_without_expect = Path(directory) / "empty.json"
+            measure_without_expect.write_text(
+                '{"schema_version": 1, "profiles": [{"name": "m", "mode": "measure", "expect": {}}]}',
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                load_specs(measure_without_expect)
+
+    def test_expected_mapping_leaves_raw_and_auto_unconstrained(self):
+        mapping = expected_mapping({"r": ExperimentSpec("r", "raw", {}),
+                                    "a": ExperimentSpec("a", "auto", {}),
+                                    "m": ExperimentSpec("m", "measure", {"cfg": "500"})})
+        self.assertIsNone(mapping["r"])
+        self.assertIsNone(mapping["a"])
+        self.assertEqual(mapping["m"], {"cfg": "500"})
+
+    def test_export_cli_reports_overwrite_with_exit_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = feed_lines(["S,1,1000,2000,1000,3,4\n"])
+            self.assertEqual(export_cli(session, Path(directory), "run1"), 0)
+            self.assertEqual(export_cli(session, Path(directory), "run1"), 5)
+
+    @staticmethod
+    def complete_record() -> dict:
+        return {
+            "analysis_samples": 2,
+            "pc_sequence": {"samples": 2, "gaps": 0, "duplicates": 0, "out_of_order": 0, "wraps": 0},
+            "parse_failures": {"decode": 0, "sample": 0, "adv": 0},
+            "platform_signature": {"cfg": 500, "role": "initiator"},
+            "sum_frames_seen": 3,
+            "firmware_identity": {"initiator": {"status": "provided"},
+                                  "responder": {"status": "provided"}},
+            "source_identity": {"head": "0123456789abcdef", "dirty": False},
+            "analysis_raw_bytes": 1024,
+        }
+
+    def test_evidence_checks_pass_when_everything_is_present(self):
+        checks = evaluate_evidence(self.complete_record(), 2)
+        self.assertEqual(checks["status"], "pass")
+        self.assertTrue(all(item["status"] == "pass" for item in checks["items"]))
+        self.assertIn("全部通过", format_evidence(checks))
+
+    def test_source_identity_accepts_run_json_git_head_shape(self):
+        # run.json 写的是 git_head/git_dirty；早期自检只认 head/dirty，会把实机导出误判成 warn。
+        record = self.complete_record()
+        record["source_identity"] = {
+            "git_head": "12dac95d4f9d8d98b6ddeaca04f77f1808031dec",
+            "git_dirty": True,
+            "source": "git",
+        }
+        checks = evaluate_evidence(record, 2)
+        by_name = {item["name"]: item for item in checks["items"]}
+        self.assertEqual(by_name["source"]["status"], "pass")
+        self.assertIn("12dac95", by_name["source"]["detail"])
+        self.assertIn("未提交", by_name["source"]["detail"])
+        self.assertEqual(checks["status"], "pass")
+
+    def test_evidence_checks_fail_when_csv_rows_disagree(self):
+        checks = evaluate_evidence(self.complete_record(), 1)
+        self.assertEqual(checks["status"], "fail")
+        detail = {item["name"]: item for item in checks["items"]}["csv_rows"]
+        self.assertEqual(detail["status"], "fail")
+        self.assertIn("1", detail["detail"])
+
+    def test_evidence_checks_warn_on_missing_board_sum_and_firmware(self):
+        record = self.complete_record()
+        record["sum_frames_seen"] = 0
+        record["firmware_identity"]["responder"] = {"status": "not_provided"}
+        checks = evaluate_evidence(record, 2)
+        self.assertEqual(checks["status"], "warn")
+        by_name = {item["name"]: item for item in checks["items"]}
+        self.assertEqual(by_name["board_sum"]["status"], "warn")
+        self.assertEqual(by_name["firmware"]["status"], "warn")
+        self.assertIn("responder", by_name["firmware"]["detail"])
+
+    def test_evidence_checks_warn_on_sequence_gaps(self):
+        record = self.complete_record()
+        record["pc_sequence"] = {"samples": 2, "gaps": 3, "duplicates": 0, "out_of_order": 0}
+        checks = evaluate_evidence(record, 2)
+        by_name = {item["name"]: item for item in checks["items"]}
+        self.assertEqual(by_name["sequence"]["status"], "warn")
+        self.assertIn("gaps=3", by_name["sequence"]["detail"])
+        self.assertEqual(checks["status"], "warn")
+
+    def test_evidence_warns_on_inherited_firmware(self):
+        record = self.complete_record()
+        record["firmware_identity"]["initiator"] = {
+            "status": "provided", "sha256": "a" * 64, "inherited": True,
+        }
+        checks = evaluate_evidence(record, 2)
+        by_name = {item["name"]: item for item in checks["items"]}
+        self.assertEqual(by_name["firmware"]["status"], "warn")
+        self.assertIn("initiator", by_name["firmware"]["detail"])
+        self.assertIn("沿用", by_name["firmware"]["detail"])
+
+    def test_count_csv_rows_ignores_header(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rows.csv"
+            path.write_text("seq,t1_us\n1,10\n2,20\n", encoding="utf-8")
+            self.assertEqual(count_csv_rows(path), 2)
+            self.assertEqual(count_csv_rows(Path(directory) / "missing.csv"), -1)
+
+
+class UnsyncedClockSampleTests(unittest.TestCase):
+    """断链后 t4-t3 会变成几千万微秒，这类样本不能被 rtt 上限判死。"""
+
+    LINE = "S,1921,69308672,69324869,16197,78,49755686"
+
+    def test_sample_with_dlt_far_above_rtt_is_accepted(self):
+        event = LineParser("COM3").feed(self.LINE + "\r\n")
+        self.assertIsNone(event.parse_failure)
+        self.assertIsNotNone(event.sample)
+        self.assertEqual(event.sample.rtt_us, 16197)
+        self.assertEqual(event.sample.dlt_us, 49755686)
+
+    def test_csv_replay_accepts_the_same_row(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rows.csv"
+            path.write_text("seq,t1_us,t4_us,rtt_us,bproc_us,dlt_us\n"
+                            "1921,69308672,69324869,16197,78,49755686\n", encoding="utf-8")
+            session = load_csv(path)
+            self.assertEqual(len(session.samples), 1)
+            self.assertEqual(session.csv_rows_skipped, 0)
+            self.assertEqual(session.samples[0].dlt_us, 49755686)
+
+    def test_csv_without_dlt_column_still_loads_and_reports_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "rows.csv"
+            path.write_text("seq,t1_us,t4_us,rtt_us,bproc_us,wall_time\n"
+                            "5,1000,11000,10000,12,2026-11-15T11:00:00.000\n", encoding="utf-8")
+            session = load_csv(path)
+            self.assertEqual(len(session.samples), 1)
+            self.assertIsNone(session.samples[0].dlt_us)
+            self.assertEqual(session.csv_rows_skipped, 0)
+
+    def test_export_omits_dlt_column_but_keeps_it_in_memory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session = feed_lines(["S,5,1000,11000,10000,12,987654\n"])
+            self.assertEqual(session.samples[0].dlt_us, 987654)
+            session.export(Path(directory), "demo")
+            header = (Path(directory) / "demo.csv").read_text(encoding="utf-8").splitlines()[0]
+            self.assertNotIn("dlt", header)
+            self.assertIn("rtt_us", header)
+
+    def test_rtt_inconsistent_row_is_still_rejected(self):
+        event = LineParser("COM3").feed("S,7,1000,11000,9999,10,0\r\n")
+        self.assertEqual(event.parse_failure, "sample")
+        self.assertIsNone(event.sample)
+
+
+class RecoveryDirectoryTests(unittest.TestCase):
+    """恢复目录不可写时必须降级，而不是让串口打不开。"""
+
+    def test_prefers_localappdata_when_writable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = {"LOCALAPPDATA": str(Path(directory) / "local"),
+                   "TEMP": str(Path(directory) / "temp")}
+            with mock.patch.dict(serial_terminal.os.environ, env, clear=False):
+                root = serial_terminal.recovery_root()
+                self.assertEqual(root, Path(directory) / "local" / "NearLinkLinkScope" / "recovery")
+                self.assertTrue(root.is_dir())
+
+    def test_falls_back_to_temp_when_localappdata_is_not_a_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            blocker = Path(directory) / "local"
+            blocker.write_bytes(b"not a directory")
+            env = {"LOCALAPPDATA": str(blocker), "TEMP": str(Path(directory) / "temp")}
+            with mock.patch.dict(serial_terminal.os.environ, env, clear=False):
+                root = serial_terminal.recovery_root()
+                self.assertEqual(root, Path(directory) / "temp" / "NearLinkLinkScope" / "recovery")
+                self.assertTrue(root.is_dir())
+
+    def test_returns_none_when_every_candidate_is_unwritable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            blocker = Path(directory) / "local"
+            blocker.write_bytes(b"not a directory")
+            workdir = Path(directory) / "cwd"
+            workdir.mkdir()
+            (workdir / "out").write_bytes(b"not a directory")
+            env = {"LOCALAPPDATA": str(blocker), "TEMP": str(blocker), "TMP": str(blocker)}
+            with mock.patch.dict(serial_terminal.os.environ, env, clear=False):
+                with mock.patch.object(serial_terminal.Path, "cwd", return_value=workdir):
+                    self.assertIsNone(serial_terminal.recovery_root())
+                    self.assertIsNone(serial_terminal.recovery_path("COM3", "analysis"))
 
 
 if __name__ == "__main__":

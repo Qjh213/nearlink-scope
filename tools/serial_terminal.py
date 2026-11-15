@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import queue
 import re
+import os
 import sys
 import threading
 import time
@@ -16,7 +17,7 @@ from typing import Callable
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
-from serial_reader import LineSplitter
+from serial_reader import LineSplitter, RawByteSink
 
 
 BAUDRATES = (4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600)
@@ -24,6 +25,45 @@ BYTE_SIZES = (4, 5, 6, 7, 8)
 STOP_BITS = (1, 1.5, 2)
 PARITIES = ("None", "Odd", "Even", "Mark", "Space")
 FLOW_CONTROLS = ("No Ctrl Flow", "SW Ctrl Flow", "HW Ctrl Flow")
+SERIAL_READ_TIMEOUT = 0.05
+DISPLAY_MAX_LINES = 5000
+
+
+def recovery_root() -> Path | None:
+    """选一个真正可写的恢复目录：%LOCALAPPDATA% → %TEMP% → 工作区 out/。
+
+    从受限终端启动的进程可能无权在 AppData 下建目录（WinError 5），不能让
+    采集因此失败；三个候选都不可写时返回 None，调用方跳过原始字节落盘。
+    """
+    candidates: list[Path] = []
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(Path(local) / "NearLinkLinkScope" / "recovery")
+    for key in ("TEMP", "TMP", "TMPDIR"):
+        value = os.environ.get(key)
+        if value:
+            candidates.append(Path(value) / "NearLinkLinkScope" / "recovery")
+    candidates.append(Path.cwd() / "out" / "recovery")
+    for root in candidates:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            probe = root / f".probe-{os.getpid()}"
+            probe.write_bytes(b"")
+            probe.unlink()
+        except OSError:
+            continue
+        return root
+    return None
+
+
+def recovery_path(port: str, role: str, now: datetime | None = None) -> Path | None:
+    """生成一轮的原始字节文件路径；没有可写目录时返回 None。"""
+    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S-%f")
+    safe_port = re.sub(r"[^A-Za-z0-9_-]", "_", port or "unknown")
+    root = recovery_root()
+    if root is None:
+        return None
+    return root / f"{stamp}-{role}-{safe_port}.raw"
 
 
 class SerialLineAccumulator(LineSplitter):
@@ -157,6 +197,9 @@ class SerialTerminalWindow:
         self.rx_bytes = 0
         self.rx_chunks = 0
         self.log_lines: list[str] = []
+        self.raw_bytes = bytearray()
+        self.raw_journal: RawByteSink | None = None
+        self.recovery_file: Path | None = None
         # boot门只用于标记板卡启动边界，绝不能阻止原始终端显示或保存串口字节。
         self.boot_gate = BootSessionGate()
 
@@ -267,9 +310,9 @@ class SerialTerminalWindow:
                       "Space": serial.PARITY_SPACE}[settings.parity]
             handle = serial.Serial(
                 port=settings.port, baudrate=settings.baudrate, bytesize=settings.byte_size,
-                stopbits=settings.stop_bits, parity=parity, timeout=.15,
+                stopbits=settings.stop_bits, parity=parity, timeout=SERIAL_READ_TIMEOUT,
                 xonxoff=settings.flow_control == "SW Ctrl Flow",
-                rtscts=settings.flow_control == "HW Ctrl Flow", dsrdtr=False,
+                rtscts=settings.flow_control == "HW Ctrl Flow", dsrdtr=False, exclusive=True,
             )
             handle.dtr, handle.rts = settings.dtr, settings.rts
             # 丢弃端口关闭期间由驱动缓存的旧字节；打开后的所有完整行都立即显示。
@@ -277,6 +320,9 @@ class SerialTerminalWindow:
             self.arm_boot_gate(clear=True)
             self.handle = handle
             self.stop_event = threading.Event()
+            self.recovery_file = recovery_path(settings.port, "aux")
+            # 没有可写目录时只是少一份 .raw，采集与显示照常进行。
+            self.raw_journal = RawByteSink(self.recovery_file) if self.recovery_file is not None else None
             self.source_id += 1
             source_id = self.source_id
             self.worker = threading.Thread(
@@ -299,15 +345,26 @@ class SerialTerminalWindow:
                 handle.close()
             except Exception:
                 pass
+        worker, self.worker = self.worker, None
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=0.5)
+            if worker.is_alive():
+                self.status.set("串口关闭中：读取线程未在500ms内退出")
+        if self.raw_journal is not None:
+            self.raw_journal.close()
+            self.raw_journal = None
         self.open_button.configure(text="Open Port")
         self.window.title(f"LinkScope · {self.terminal_name}")
         self.status.set(f"串口已关闭；保留 {self.rx_chunks} 个接收块、{self.rx_bytes} bytes")
 
     def _reader(self, handle, stop_event: threading.Event, source_id: int) -> None:
         try:
+            def emit(stamp: datetime, line: bytes) -> None:
+                if self.raw_journal is not None:
+                    self.raw_journal.append(line)
+                self.events.put((source_id, "data", stamp, line))
             pump_serial_lines(
-                handle, stop_event,
-                lambda stamp, line: self.events.put((source_id, "data", stamp, line)),
+                handle, stop_event, emit,
             )
         except Exception as exc:
             if not stop_event.is_set():
@@ -341,6 +398,7 @@ class SerialTerminalWindow:
     def _append_received(self, stamp: datetime, data: bytes) -> None:
         self.rx_chunks += 1
         self.rx_bytes += len(data)
+        self.raw_bytes.extend(data)
         rendered = format_received(data, self.hex_display.get())
         prefix = f"[{stamp:%Y-%m-%d_%H:%M:%S}:{stamp.microsecond // 1000:03d}]" if self.show_time.get() else ""
         if self.hex_display.get():
@@ -352,9 +410,15 @@ class SerialTerminalWindow:
         self.log_lines.append(rendered)
         self.console.configure(state="normal")
         self.console.insert("end", rendered)
+        self._trim_console()
         self.console.see("end")
         self.console.configure(state="disabled")
         self.status.set(f"正在读取 {self.active_port} | blocks={self.rx_chunks} bytes={self.rx_bytes}")
+
+    def _trim_console(self) -> None:
+        lines = int(self.console.index("end-1c").split(".")[0])
+        if lines > DISPLAY_MAX_LINES:
+            self.console.delete("1.0", f"{lines - DISPLAY_MAX_LINES + 1}.0")
 
     def _apply_control_lines(self) -> None:
         if self.is_open:
@@ -384,6 +448,7 @@ class SerialTerminalWindow:
 
     def clear(self) -> None:
         self.log_lines.clear()
+        self.raw_bytes.clear()
         self.rx_bytes = self.rx_chunks = 0
         self.console.configure(state="normal")
         self.console.delete("1.0", "end")
@@ -403,7 +468,15 @@ class SerialTerminalWindow:
 
     def write_log(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("".join(self.log_lines), encoding="utf-8")
+        if path.exists():
+            raise FileExistsError(f"拒绝覆盖既有日志：{path}")
+        raw_path = path.with_suffix(".raw")
+        if raw_path.exists():
+            raise FileExistsError(f"拒绝覆盖既有原始字节：{raw_path}")
+        with path.open("x", encoding="utf-8") as handle:
+            handle.write("".join(self.log_lines))
+        with raw_path.open("xb") as handle:
+            handle.write(bytes(self.raw_bytes))
 
     def close(self) -> None:
         self.close_port()
@@ -424,6 +497,7 @@ class AnalysisSerialConsoleWindow:
         self.window.title("LinkScope · 分析端原始终端")
         self.window.geometry("960x650")
         self.log_lines: list[str] = []
+        self.raw_bytes = bytearray()
         self.rx_bytes = 0
         self.rx_chunks = 0
 
@@ -473,6 +547,7 @@ class AnalysisSerialConsoleWindow:
             return
         self.rx_chunks += 1
         self.rx_bytes += len(data)
+        self.raw_bytes.extend(data)
         rendered = format_received(data, self.hex_display.get())
         prefix = f"[{stamp:%Y-%m-%d_%H:%M:%S}:{stamp.microsecond // 1000:03d}]" if self.show_time.get() else ""
         if self.hex_display.get():
@@ -484,9 +559,15 @@ class AnalysisSerialConsoleWindow:
         self.log_lines.append(rendered)
         self.console.configure(state="normal")
         self.console.insert("end", rendered)
+        self._trim_console()
         self.console.see("end")
         self.console.configure(state="disabled")
         self.status.set(f"{self.port_callback() or 'COM?'} | blocks={self.rx_chunks} bytes={self.rx_bytes}")
+
+    def _trim_console(self) -> None:
+        lines = int(self.console.index("end-1c").split(".")[0])
+        if lines > DISPLAY_MAX_LINES:
+            self.console.delete("1.0", f"{lines - DISPLAY_MAX_LINES + 1}.0")
 
     def send(self) -> None:
         from tkinter import messagebox
@@ -499,6 +580,7 @@ class AnalysisSerialConsoleWindow:
 
     def clear(self) -> None:
         self.log_lines.clear()
+        self.raw_bytes.clear()
         self.rx_bytes = self.rx_chunks = 0
         self.console.configure(state="normal")
         self.console.delete("1.0", "end")
@@ -513,6 +595,11 @@ class AnalysisSerialConsoleWindow:
         )
         if not path:
             return
-        Path(path).write_text("".join(self.log_lines), encoding="utf-8")
+        target = Path(path)
+        if target.exists() or target.with_suffix(".raw").exists():
+            messagebox.showerror("保存失败", "拒绝覆盖既有日志或原始字节文件")
+            return
+        target.write_text("".join(self.log_lines), encoding="utf-8")
+        target.with_suffix(".raw").write_bytes(bytes(self.raw_bytes))
         messagebox.showinfo("保存完成", path)
 

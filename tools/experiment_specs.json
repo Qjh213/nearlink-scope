@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {"name": "仅原始日志（不进入统计）", "mode": "raw", "expect": {}},
+    {"name": "自动识别平台签名", "mode": "auto", "expect": {}},
+    {"name": "M5 cfg500 基线 40B/40Hz", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "500", "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}},
+    {"name": "M5 cfg511 Payload 12B", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "511", "payload_b": 12, "rate_hz": 40, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}},
+    {"name": "M5 cfg512 Payload 100B", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "512", "payload_b": 100, "rate_hz": 40, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}},
+    {"name": "M5 cfg513 Payload 250B", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "513", "payload_b": 250, "rate_hz": 40, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}},
+    {"name": "M5 cfg521 Rate 10Hz", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "521", "payload_b": 40, "rate_hz": 10, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}},
+    {"name": "M5 cfg522 Rate 25Hz", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "522", "payload_b": 40, "rate_hz": 25, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}},
+    {"name": "M5 cfg523 Rate 60Hz", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "523", "payload_b": 40, "rate_hz": 60, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}},
+    {"name": "M5 cfg541 干扰", "mode": "measure", "expect": {"role": "initiator", "link": "sle-write_cmd", "cfg": "541", "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50, "mtu": 520, "interval": 24}}
+  ]
+}

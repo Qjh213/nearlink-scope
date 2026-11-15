@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -14,34 +16,64 @@ from datetime import datetime
 from dataclasses import asdict
 from pathlib import Path
 
-from nlscope_core import LineParser, Session, load_log
-from serial_terminal import BootSessionGate, pump_serial_lines
+from nlscope_core import (LineParser, Session, count_csv_rows, evaluate_evidence,
+                          format_evidence, load_log)
+from serial_terminal import BootGateDecision, BootSessionGate, SERIAL_READ_TIMEOUT, pump_serial_lines, recovery_path
+from serial_reader import RawByteSink
+from experiment_specs import ExperimentSpec, expected_mapping, load_specs
 
-APP_VERSION = "M5.0.9-rc5"
+APP_VERSION = "M6.0.0-rc1"
 
-M5_PROFILES = {
-    "不校验预期实验": None,
-    "M5 cfg500 基线 40B/40Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "500",
-                                  "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
-    "M5 cfg511 Payload 12B": {"role": "initiator", "link": "sle-write_cmd", "cfg": "511",
-                                 "payload_b": 12, "rate_hz": 40, "window": 1, "timeout_ms": 50},
-    "M5 cfg512 Payload 100B": {"role": "initiator", "link": "sle-write_cmd", "cfg": "512",
-                                  "payload_b": 100, "rate_hz": 40, "window": 1, "timeout_ms": 50},
-    "M5 cfg513 Payload 250B": {"role": "initiator", "link": "sle-write_cmd", "cfg": "513",
-                                  "payload_b": 250, "rate_hz": 40, "window": 1, "timeout_ms": 50},
-    "M5 cfg521 Rate 10Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "521",
-                               "payload_b": 40, "rate_hz": 10, "window": 1, "timeout_ms": 50},
-    "M5 cfg522 Rate 25Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "522",
-                               "payload_b": 40, "rate_hz": 25, "window": 1, "timeout_ms": 50},
-    "M5 cfg523 Rate 60Hz": {"role": "initiator", "link": "sle-write_cmd", "cfg": "523",
-                               "payload_b": 40, "rate_hz": 60, "window": 1, "timeout_ms": 50},
-    "M5 cfg531 中距": {"role": "initiator", "link": "sle-write_cmd", "cfg": "531",
-                          "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
-    "M5 cfg532 远距": {"role": "initiator", "link": "sle-write_cmd", "cfg": "532",
-                          "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
-    "M5 cfg541 干扰": {"role": "initiator", "link": "sle-write_cmd", "cfg": "541",
-                          "payload_b": 40, "rate_hz": 40, "window": 1, "timeout_ms": 50},
-}
+def _load_default_specs() -> dict[str, ExperimentSpec]:
+    """规格文件缺失/损坏时不能拖垮整个程序：退回两条通用规格并保留错误原因。"""
+    global SPECS_LOAD_ERROR
+    try:
+        return load_specs()
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        SPECS_LOAD_ERROR = f"{type(exc).__name__}: {exc}"
+        return {
+            "仅原始日志（不进入统计）": ExperimentSpec("仅原始日志（不进入统计）", "raw", {}),
+            "自动识别平台签名": ExperimentSpec("自动识别平台签名", "auto", {}),
+        }
+
+
+SPECS_LOAD_ERROR: str | None = None
+DEFAULT_EXPERIMENT_SPECS = _load_default_specs()
+M5_PROFILES = expected_mapping(DEFAULT_EXPERIMENT_SPECS)  # compatibility for existing API/tests
+
+
+def repository_identity() -> dict[str, object]:
+    """Best-effort source identity; packaged builds honestly report unavailable git data."""
+    root = Path(__file__).resolve().parent.parent
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True,
+            timeout=2, check=True,
+        ).stdout.strip()
+        dirty = bool(subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain"], capture_output=True, text=True,
+            timeout=2, check=True,
+        ).stdout.strip())
+        return {"git_head": head, "git_dirty": dirty, "source": "git"}
+    except (OSError, subprocess.SubprocessError):
+        return {"git_head": None, "git_dirty": None, "source": "unavailable"}
+
+
+def file_identity(path: str) -> dict[str, object]:
+    """Return a user-selected firmware package identity without trusting its filename."""
+    if not path:
+        return {"path": None, "sha256": None, "size": None, "status": "not_provided"}
+    source = Path(path)
+    digest = hashlib.sha256()
+    try:
+        with source.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return {"path": str(source.resolve()), "sha256": digest.hexdigest(),
+                "size": source.stat().st_size, "status": "provided"}
+    except OSError as exc:
+        return {"path": str(source), "sha256": None, "size": None,
+                "status": "unreadable", "error": str(exc)}
 
 
 def discover_serial_ports() -> list[tuple[str, str]]:
@@ -71,12 +103,41 @@ def print_summary(session: Session) -> None:
         print(f"adv={metrics['n']} devices={len(metrics['devices'])} sequence={metrics['sequence']}")
         return
     metrics = session.metrics()
+    def counter(key: str) -> str:
+        value = metrics[key]
+        return "—" if value is None else str(value)
     print(session.signature.compact())
     print(
         f"n={metrics['n']} p50={metrics['p50_us']}us p90={metrics['p90_us']}us "
         f"p99={metrics['p99_us']}us p999={metrics['p999_us']}us max={metrics['max_us']}us "
-        f"to={metrics['to']} dup={metrics['dup']} ooo={metrics['ooo']} bad={metrics['bad']} drop={metrics['drop']}"
+        f"to={counter('to')} dup={counter('dup')} ooo={counter('ooo')} "
+        f"bad={counter('bad')} drop={counter('drop')}"
     )
+
+
+def session_evidence_record(session: Session) -> dict:
+    """CLI 与单窗口导出没有 run.json，用会话内已有事实跑同一套自检。"""
+    return {
+        "analysis_samples": len(session.samples),
+        "pc_sequence": session.sample_sequence_metrics(),
+        "parse_failures": session.parse_failures,
+        "platform_signature": asdict(session.signature),
+        "sum_frames_seen": session.sum_frames_seen,
+        "board_restarts": session.board_restarts,
+    }
+
+
+def export_cli(session: Session, directory: Path, stem: str) -> int:
+    """CLI 导出：拒绝覆盖是正常路径（返回码 5），不能以 traceback 结束。"""
+    try:
+        paths = session.export(directory, stem)
+    except FileExistsError as exc:
+        print(f"导出失败：{exc}", file=sys.stderr)
+        return 5
+    print("\n".join(str(path) for path in paths))
+    print(format_evidence(evaluate_evidence(session_evidence_record(session),
+                                            count_csv_rows(paths[1]))))
+    return 0
 
 
 class ScopeApp:
@@ -90,6 +151,7 @@ class ScopeApp:
         self.root.title(f"NearLink LinkScope · {APP_VERSION}")
         self.root.geometry("1280x820")
         self.root.protocol("WM_DELETE_WINDOW", self.shutdown)
+        self.experiment_specs = dict(DEFAULT_EXPERIMENT_SPECS)
         self.events: queue.Queue = queue.Queue()
         self.stop_event = threading.Event()
         self.source_id = 0
@@ -104,6 +166,7 @@ class ScopeApp:
         self.parser = LineParser()
         self.last_draw_n = -1
         self.last_draw_monitor_n = -1
+        self.last_draw_at = 0.0
         self.aux_terminals = []
         self.serial_workbench = None
         self.serial_workbench_tree = None
@@ -112,6 +175,9 @@ class ScopeApp:
         self.analysis_console = None
         self.main_serial_handle = None
         self.main_serial_lock = threading.Lock()
+        self.main_worker = None
+        self.main_raw_journal = None
+        self.main_recovery_file = None
         self.main_boot_gate = BootSessionGate()
 
         controls = ttk.Frame(root, padding=8)
@@ -140,8 +206,22 @@ class ScopeApp:
             state="readonly", width=34,
         )
         self.expected_profile_combo.pack(side="left", padx=6)
+        ttk.Button(experiment, text="导入规格", command=self.import_experiment_specs).pack(side="left")
         self.expected_status = tk.StringVar(value="将校验role/link/cfg/payload/rate/window/timeout")
         ttk.Label(experiment, textvariable=self.expected_status).pack(side="left", padx=8)
+        self.require_boot_gate = tk.BooleanVar(value=True)
+        ttk.Checkbutton(experiment, text="等待 boot. 边界",
+                        variable=self.require_boot_gate).pack(side="left", padx=(4, 0))
+        self.initiator_firmware = tk.StringVar(value="")
+        self.responder_firmware = tk.StringVar(value="")
+        # 固件登记时间与会话起点用于判断"本轮是否真的重新确认过固件"：
+        # 只在本进程启动时创建一次，新会话不清空（否则每轮都要点两次）。
+        self.firmware_selected_at: dict[str, datetime] = {}
+        self.session_started_at: datetime | None = None
+        ttk.Button(experiment, text="发起端固件", command=lambda: self.select_firmware(
+            self.initiator_firmware)).pack(side="left", padx=(8, 2))
+        ttk.Button(experiment, text="响应端固件", command=lambda: self.select_firmware(
+            self.responder_firmware)).pack(side="left")
 
         self.signature = tk.StringVar(value="平台签名：等待数据")
         ttk.Label(root, textvariable=self.signature, padding=(12, 8), background="#0d344f", foreground="white").pack(fill="x")
@@ -401,15 +481,44 @@ class ScopeApp:
         if not directory:
             return
         target = Path(directory)
-        paths = list(self.session.export(target, "initiator_COM3"))
-        auxiliary = []
-        auxiliary_paths = []
+        analysis_port = re.sub(r"[^A-Za-z0-9_-]", "_", self.active_port or "unknown")
+        analysis_stem = f"initiator_{analysis_port}"
+        planned = [target / f"{analysis_stem}.{suffix}" for suffix in ("log", "csv", "json", "md")]
+        planned.append(target / f"{analysis_stem}.raw")
+        terminal_plans = []
         for index, terminal in enumerate(terminals, start=1):
             port = terminal.active_port or terminal.port_map.get(terminal.port.get(), "unknown")
             safe_port = re.sub(r"[^A-Za-z0-9_-]", "_", port or f"aux{index}")
             log_path = target / f"aux_{safe_port}.log"
+            terminal_plans.append((terminal, port, log_path))
+            planned.extend((log_path, log_path.with_suffix(".raw")))
+        planned.append(target / "run.json")
+        existing = [path for path in planned if path.exists()]
+        if existing:
+            messagebox.showerror("拒绝覆盖", "目标目录已有本轮文件：\n" + "\n".join(map(str, existing)))
+            return
+        try:
+            paths = list(self.session.export(target, analysis_stem))
+        except FileExistsError as exc:
+            messagebox.showerror("拒绝覆盖", str(exc))
+            return
+        # 行数与样本数的一致性只能在文件落盘后核对（导出函数本身按内存写入）。
+        csv_rows = count_csv_rows(target / f"{analysis_stem}.csv")
+        # 分析端的原始字节也必须进本轮证据目录：渲染后的 .log 会改写行边界，
+        # 逐字节复核只能靠 .raw；来源是采集期间持续 flush 的恢复日志。
+        raw_source = getattr(self, "main_recovery_file", None)
+        raw_bytes = b""
+        if raw_source is not None and Path(raw_source).exists():
+            raw_bytes = Path(raw_source).read_bytes()
+        raw_path = target / f"{analysis_stem}.raw"
+        with raw_path.open("xb") as handle:
+            handle.write(raw_bytes)
+        paths.append(raw_path)
+        auxiliary = []
+        auxiliary_paths = []
+        for terminal, port, log_path in terminal_plans:
             terminal.write_log(log_path)
-            auxiliary_paths.append(log_path)
+            auxiliary_paths.extend((log_path, log_path.with_suffix(".raw")))
             auxiliary.append({
                 "name": terminal.terminal_name, "port": port,
                 "baudrate": int(terminal.baudrate.get()), "byte_size": int(terminal.byte_size.get()),
@@ -420,20 +529,37 @@ class ScopeApp:
                 "log": log_path.name,
             })
         run_path = target / "run.json"
-        run_path.write_text(json.dumps({
+        spec = self.experiment_specs.get(self.expected_profile_name.get())
+        run_payload = {
             "app_version": APP_VERSION,
+            "source_identity": repository_identity(),
             "exported_at": datetime.now().isoformat(timespec="seconds"),
             "analysis_port": self.active_port,
             "auxiliary_serials": auxiliary,
             "platform_signature": asdict(self.session.signature),
+            "experiment_spec": ({"schema_version": 1, "name": spec.name, "mode": spec.mode,
+                                 "expect": spec.expect} if spec is not None else None),
+            "firmware_identity": self._firmware_identity(),
             "capture_seconds": self._capture_seconds(),
             "analysis_samples": len(self.session.samples),
             "monitor_reports": len(self.session.adv_records),
             "auxiliary_rx_bytes": sum(item["rx_bytes"] for item in auxiliary),
             "auxiliary_rx_chunks": sum(item["rx_chunks"] for item in auxiliary),
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+            "pre_ready_samples": self.pre_ready_samples,
+            "sum_frames_seen": self.session.sum_frames_seen,
+            "samples_since_latest_sum": self.session.metrics()["samples_since_latest_sum"],
+            "parse_failures": self.session.parse_failures,
+            "pc_sequence": self.session.sample_sequence_metrics(),
+            "board_restarts": self.session.board_restarts,
+            "analysis_raw_bytes": len(raw_bytes),
+        }
+        checks = evaluate_evidence(run_payload, csv_rows)
+        run_payload["evidence_checks"] = checks
+        with run_path.open("x", encoding="utf-8") as handle:
+            json.dump(run_payload, handle, ensure_ascii=False, indent=2)
         paths.extend((*auxiliary_paths, run_path))
-        messagebox.showinfo("联合导出完成", "\n".join(str(path) for path in paths))
+        messagebox.showinfo("联合导出完成", "\n".join(str(path) for path in paths)
+                            + "\n\n" + format_evidence(checks))
 
     def refresh_ports(self, preferred: str | None = None) -> None:
         current_display = self.port.get()
@@ -454,12 +580,14 @@ class ScopeApp:
         self.session = Session()
         self.parser = LineParser(source=source)
         self.source_label = source
+        self.session_started_at = datetime.now()
         self.pre_ready_samples = 0
         self.capture_started_monotonic = None
         self.capture_frozen_seconds = 0.0
         self.paused = False
         self.last_draw_n = -1
         self.last_draw_monitor_n = -1
+        self.last_draw_at = 0.0
 
     def _begin_source(self, source: str) -> tuple[int, threading.Event]:
         self.stop()
@@ -496,12 +624,18 @@ class ScopeApp:
                 handle.close()
             except Exception:
                 pass
+        worker, self.main_worker = getattr(self, "main_worker", None), None
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=0.5)
+        if getattr(self, "main_raw_journal", None) is not None:
+            self.main_raw_journal.close()
+            self.main_raw_journal = None
         # 立即使旧 worker 已排队但尚未处理的尾部消息失效；否则尾部 S 行会再次启动计时并清零冻结值。
         self.source_id += 1
         self.paused = bool(self.session.raw_lines or self.session.samples or self.session.adv_records)
         self.status.set(
-            f"已暂停，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
-            "点击开始串口可继续，点击清空才会归零"
+            f"已停止，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
+            "重新开始会创建新会话并清空当前数据，请先导出"
         )
 
     def _freeze_capture(self) -> None:
@@ -530,6 +664,11 @@ class ScopeApp:
 
     def _apply_live_gate(self, event) -> bool:
         """Drop data emitted by a board that predates the current verified boot."""
+        spec = getattr(self, "experiment_specs", {}).get(self.expected_profile_name.get())
+        if spec is not None and spec.mode == "raw" and (event.sample or event.adv):
+            event.sample = None
+            event.adv = None
+            return False
         if (self.strict_live_gate and (event.sample or event.adv)
                 and (not self.parser.signature.measurement_ready or self._signature_mismatches())):
             self.pre_ready_samples += 1
@@ -541,21 +680,70 @@ class ScopeApp:
         return True
 
     def _signature_mismatches(self) -> list[str]:
-        expected = M5_PROFILES.get(self.expected_profile_name.get())
+        spec = getattr(self, "experiment_specs", {}).get(self.expected_profile_name.get())
+        expected = (dict(spec.expect) if spec is not None and spec.mode == "measure"
+                    else M5_PROFILES.get(self.expected_profile_name.get()))
         if not expected:
             return []
         signature = self.parser.signature
         mismatches = []
         for field, wanted in expected.items():
+            if not hasattr(signature, field):
+                mismatches.append(f"{field}=<规格里的未知字段>（期望{wanted!s}）")
+                continue
             actual = getattr(signature, field)
             if actual != wanted:
                 mismatches.append(f"{field}={actual!s}（期望{wanted!s}）")
-        # M5 fixed conditions that are learned later in the startup chain.
-        if signature.mtu is not None and signature.mtu != 520:
-            mismatches.append(f"mtu={signature.mtu}（期望520）")
-        if signature.interval is not None and signature.interval != 24:
-            mismatches.append(f"intv={signature.interval}（期望24）")
         return mismatches
+
+    def import_experiment_specs(self) -> None:
+        from tkinter import filedialog, messagebox
+        path = filedialog.askopenfilename(
+            title="导入实验规格JSON", filetypes=(("JSON", "*.json"), ("All", "*.*")),
+        )
+        if not path:
+            return
+        try:
+            imported = load_specs(path)
+            self.experiment_specs.update(imported)
+            self.expected_profile_combo.configure(values=list(self.experiment_specs))
+            self.expected_profile_name.set(next(iter(imported)))
+            self.expected_status.set(f"已导入 {len(imported)} 个规格：{Path(path).name}")
+        except Exception as exc:
+            messagebox.showerror("导入实验规格失败", str(exc))
+
+    def _firmware_identity(self) -> dict:
+        """登记路径 + 哈希；在本轮开始前选的路径标 inherited，供自检提示"没重新确认"。
+
+        `provided` 只说明"本进程某轮登记过"，不等于"这一轮用的就是它"；跨会话继承在
+        重新烧录后并不可信，所以导出时把时间关系一并写进 run.json，由自检给 warn。
+        """
+        identity = {}
+        for role, variable in (("initiator", getattr(self, "initiator_firmware", None)),
+                               ("responder", getattr(self, "responder_firmware", None))):
+            path = variable.get() if variable is not None and hasattr(variable, "get") else ""
+            item = file_identity(path)
+            selected = self.firmware_selected_at.get(role)
+            started = self.session_started_at
+            item["selected_at"] = selected.isoformat(timespec="seconds") if selected else None
+            item["inherited"] = bool(selected and started and selected < started)
+            identity[role] = item
+        return identity
+
+    def select_firmware(self, variable) -> None:
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title="选择本轮实际烧录的固件包",
+            filetypes=(("固件包", "*.fwpkg *.bin *.hex"), ("所有文件", "*.*")),
+        )
+        if path:
+            variable.set(path)
+            role = ("initiator" if variable is getattr(self, "initiator_firmware", None)
+                    else "responder")
+            stamps = getattr(self, "firmware_selected_at", None)
+            if stamps is not None:
+                stamps[role] = datetime.now()
+            self.status.set(f"已登记固件：{Path(path).name}；联合导出将计算 SHA-256")
 
     def open_log(self) -> None:
         from tkinter import filedialog
@@ -624,8 +812,14 @@ class ScopeApp:
         source_id, stop_event = self._begin_source(port)
         self.strict_live_gate = True
         self.active_port = port
+        self.main_recovery_file = recovery_path(port, "analysis")
+        # 只读目录或无写权限时跳过 .raw，采集不能因为落盘失败而中断。
+        self.main_raw_journal = RawByteSink(self.main_recovery_file) if self.main_recovery_file is not None else None
         self.status.set(f"已打开 {port}，等待启动签名：请先复位 COM4，再复位 COM3")
-        threading.Thread(target=self._serial_worker, args=(serial, port, source_id, stop_event), daemon=True).start()
+        self.main_worker = threading.Thread(
+            target=self._serial_worker, args=(serial, port, source_id, stop_event), daemon=True
+        )
+        self.main_worker.start()
 
     def _serial_worker(self, serial_module, port: str, source_id: int, stop_event: threading.Event) -> None:
         handle = None
@@ -644,10 +838,11 @@ class ScopeApp:
                         bytesize=serial_module.EIGHTBITS,
                         parity=serial_module.PARITY_NONE,
                         stopbits=serial_module.STOPBITS_ONE,
-                        timeout=.2,
+                        timeout=SERIAL_READ_TIMEOUT,
                         xonxoff=False,
                         rtscts=False,
                         dsrdtr=False,
+                        exclusive=True,
                     )
                     handle.dtr = False
                     handle.rts = False
@@ -670,7 +865,7 @@ class ScopeApp:
                     self.main_serial_handle = handle
                 pump_serial_lines(
                     handle, stop_event,
-                    lambda stamp, line: self.events.put((source_id, ("serial_bytes", stamp, line))),
+                    lambda stamp, line: self._emit_main_serial(source_id, stamp, line),
                 )
         except Exception as exc:  # 串口异常必须回到 UI 线程显示
             self.events.put((source_id, exc))
@@ -679,6 +874,12 @@ class ScopeApp:
                 if self.main_serial_handle is handle:
                     self.main_serial_handle = None
             self.events.put((source_id, None))
+
+    def _emit_main_serial(self, source_id: int, stamp: datetime, line: bytes) -> None:
+        journal = self.main_raw_journal
+        if journal is not None:
+            journal.append(line)
+        self.events.put((source_id, ("serial_bytes", stamp, line)))
 
     def poll(self) -> None:
         drained = 0
@@ -695,8 +896,8 @@ class ScopeApp:
                 self._freeze_capture()
                 if self.paused:
                     self.status.set(
-                        f"已暂停，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
-                        "点击开始串口可继续，点击清空才会归零"
+                        f"已停止，数据与时长已保留：{self._format_duration(self._capture_seconds())}；"
+                        "重新开始会创建新会话并清空当前数据，请先导出"
                     )
                 else:
                     self.status.set(
@@ -717,7 +918,9 @@ class ScopeApp:
                     # QCOM式原始镜像：先无条件显示，再由boot门决定是否进入解析与统计链。
                     if self.analysis_console is not None and self.analysis_console.window.winfo_exists():
                         self.analysis_console.feed(received_at, raw)
-                    decision = self.main_boot_gate.admit(line)
+                    require_boot = getattr(getattr(self, "require_boot_gate", None), "get", lambda: True)()
+                    decision = (self.main_boot_gate.admit(line) if require_boot
+                                else BootGateDecision(accepted=True))
                     if not decision.accepted:
                         # 复位前数据不进入解析器、Session或样本导出，但始终保留在原始镜像窗口。
                         preview = line.strip().replace("\r", "")[-40:]
@@ -782,8 +985,13 @@ class ScopeApp:
         if not directory:
             return
         stem = time.strftime("linkscope-%Y%m%d-%H%M%S")
-        paths = self.session.export(Path(directory), stem)
-        messagebox.showinfo("导出完成", "\n".join(str(p) for p in paths))
+        try:
+            paths = self.session.export(Path(directory), stem)
+        except FileExistsError as exc:
+            messagebox.showerror("拒绝覆盖", str(exc))
+            return
+        checks = evaluate_evidence(session_evidence_record(self.session), count_csv_rows(paths[1]))
+        messagebox.showinfo("导出完成", "\n".join(str(p) for p in paths) + "\n\n" + format_evidence(checks))
 
     @staticmethod
     def _line_chart(canvas, values, title: str, color: str = "#168fa1") -> None:
@@ -813,6 +1021,10 @@ class ScopeApp:
         if (not force and len(self.session.samples) == self.last_draw_n
                 and len(self.session.adv_records) == self.last_draw_monitor_n):
             return
+        now = time.monotonic()
+        if not force and now - self.last_draw_at < 0.5:
+            return
+        self.last_draw_at = now
         self.last_draw_n = len(self.session.samples)
         self.last_draw_monitor_n = len(self.session.adv_records)
         if self.session.adv_records or self.session.signature.role == "monitor":
@@ -826,7 +1038,8 @@ class ScopeApp:
             self.metric_labels[key].set(label)
         self.metric_vars["采集时长"].set(self._format_duration(self._capture_seconds()))
         for key, metric in (("n", "n"), ("timeout", "to"), ("dup", "dup"), ("ooo", "ooo"), ("bad", "bad"), ("drop", "drop")):
-            self.metric_vars[key].set(str(m[metric]))
+            value = m[metric]
+            self.metric_vars[key].set("—" if value is None else str(value))
         for key, metric in (("p50精确", "p50_us"), ("p90精确", "p90_us"), ("p99精确", "p99_us"), ("p99.9精确", "p999_us"), ("max", "max_us"), ("jitter", "jitter_us")):
             value = m[metric]
             self.metric_vars[key].set("—" if value is None else f"{float(value) / 1000:.3f} ms")
@@ -973,6 +1186,8 @@ def main() -> int:
     parser.add_argument("--replay", type=Path, help="无界面解析历史 QCOM 日志")
     parser.add_argument("--serial", metavar="COM", help="无界面采集串口，例如 COM3")
     parser.add_argument("--duration", type=float, default=10.0, help="--serial 采集秒数，默认10秒")
+    parser.add_argument("--no-boot-gate", action="store_true",
+                        help="串口采集不等待本次复位的 boot. 边界（仅接入无该标记的第三方固件时使用）")
     parser.add_argument("--export", type=Path, help="与 --replay/--serial 配合导出 CSV/JSON/Markdown")
     args = parser.parse_args()
     if args.replay and args.serial:
@@ -981,7 +1196,9 @@ def main() -> int:
         session = load_log(args.replay)
         print_summary(session)
         if args.export:
-            print("\n".join(str(p) for p in session.export(args.export, args.replay.stem)))
+            code = export_cli(session, args.export, args.replay.stem)
+            if code:
+                return code
         return 0 if (session.samples or session.adv_records) else 2
 
     if args.serial:
@@ -993,6 +1210,7 @@ def main() -> int:
         line_parser = LineParser(source=args.serial)
         session = Session()
         pre_ready_samples = 0
+        boot_gate = BootSessionGate()
         deadline = time.monotonic() + max(0.1, args.duration)
         try:
             with serial.Serial(
@@ -1001,10 +1219,11 @@ def main() -> int:
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=.2,
+                timeout=SERIAL_READ_TIMEOUT,
                 xonxoff=False,
                 rtscts=False,
                 dsrdtr=False,
+                exclusive=True,
             ) as handle:
                 handle.dtr = False
                 handle.rts = False
@@ -1013,7 +1232,10 @@ def main() -> int:
 
                 def accept_line(received_at, raw):
                     nonlocal pre_ready_samples
-                    event = line_parser.feed(raw.decode("utf-8", errors="replace"), received_at=received_at)
+                    text = raw.decode("utf-8", errors="replace")
+                    if not args.no_boot_gate and not boot_gate.admit(text).accepted:
+                        return
+                    event = line_parser.feed(text, received_at=received_at)
                     if event.sample and not line_parser.signature.measurement_ready:
                         pre_ready_samples += 1
                         event.sample = None
@@ -1026,9 +1248,13 @@ def main() -> int:
         print_summary(session)
         if pre_ready_samples:
             print(f"ignored_pre_ready_samples={pre_ready_samples}")
+        if not args.no_boot_gate:
+            print(f"boot_gate_active={boot_gate.active} rejected_lines={boot_gate.rejected_lines}")
         if args.export:
             stem = f"linkscope-{args.serial.lower()}-{time.strftime('%Y%m%d-%H%M%S')}"
-            print("\n".join(str(p) for p in session.export(args.export, stem)))
+            code = export_cli(session, args.export, stem)
+            if code:
+                return code
         return 0 if (session.samples or session.adv_records) else 2
 
     import tkinter as tk

@@ -28,6 +28,11 @@ M5 已完成（距离组 531/532 按决议本轮不做）：包长 12/100/250 B�
 怎么从零跑通、怎么测链路稳定性，见 [`docs/上手与复现手册.md`](docs/上手与复现手册.md)；
 哪些该提交见 [`docs/提交与仓库规范.md`](docs/提交与仓库规范.md)。
 
+**M6 进行中（2026-11-15 起）**：第一件事是把分发件补齐——安装版与便携版已用 `M5.0.9-rc5`
+源码重建（`dist\release\NearLink-LinkScope-M5.0.9-rc5-{Setup.exe,Portable.zip}`），
+版本号改为从 `tools/nlscope.py` 的 `APP_VERSION` 单一来源生成，见
+[`docs/releases/vM5.0.9-rc5.md`](docs/releases/vM5.0.9-rc5.md)。
+
 ## 硬件基线
 
 - 2 × BearPi-Pico H3863（Hi3863，Wi-Fi 6 + BLE + SLE 三合一）
@@ -38,7 +43,7 @@ M5 已完成（距离组 531/532 按决议本轮不做）：包长 12/100/250 B�
 
 1. 装CH340驱动，并在仓库根目录装好依赖：`python -m pip install -r tools\requirements.txt`。
 2. 两块H3863分别烧initiator/responder固件，USB接PC（惯例COM3=发起端，COM4=响应端）。
-3. 仓库根目录运行 `python tools\nlscope.py`（免安装包 `dist\` 里的是 11-13 旧构建，待 M6 重打包），主窗口选COM3，工作台新建COM4辅助终端，两端均用115200/8N1/无流控/DTR、RTS关。
+3. 仓库根目录运行 `python tools\nlscope.py`（或直接双击重建后的 `dist\LinkScope\LinkScope.exe`），主窗口选COM3，工作台新建COM4辅助终端，两端均用115200/8N1/无流控/DTR、RTS关。
 4. 点“全部开始”，**先复位COM4再复位COM3**；等COM3打印完整平台签名并出现`measurement-ready`才开始计时。
 5. 跑满时长（矩阵默认180 s，稳定性长测≥10分钟）后“全部停止”→“联合导出”。
 

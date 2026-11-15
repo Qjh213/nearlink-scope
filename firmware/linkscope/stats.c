@@ -184,6 +184,7 @@ ls_summary_t ls_stats_summary(const ls_stats_t *s)
     out.recv = s->recv;
     out.timeout = s->timeout;
     out.dup = s->dup;
+    out.ooo = s->ooo;
     out.unsolicited = s->unsolicited;
     out.max_us = s->max_us;
     out.p50_us = ls_hist_quantile(s, 500u);
@@ -197,5 +198,13 @@ ls_summary_t ls_stats_summary(const ls_stats_t *s)
     out.bproc_max_us = s->bproc_max_us;
     out.down_mean_us = (s->n == 0u) ? 0u : (uint32_t)(s->down_sum_us / s->n);
     out.down_max_us = s->down_max_us;
+    out.down_negative = s->down_negative;
     return out;
+}
+
+void ls_stats_on_down_negative(ls_stats_t *s)
+{
+    if (s != NULL) {
+        s->down_negative++;
+    }
 }

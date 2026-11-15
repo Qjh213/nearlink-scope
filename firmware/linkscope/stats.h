@@ -20,8 +20,11 @@ typedef struct {
     uint32_t recv;          /* 收到有效 RSP 数 */
     uint32_t timeout;       /* 超时未回 */
     uint32_t dup;           /* 重复/过期的 RSP */
+    uint32_t ooo;           /* 有效 RSP 的到达顺序落后于最近前向序号 */
     uint32_t unsolicited;   /* 没有在途请求时收到的 RSP */
     uint32_t bad_frame;     /* 解析失败的帧 */
+    uint16_t last_seq;
+    uint8_t has_last_seq;
 
     /* RTT 分布 */
     uint32_t hist[LS_HIST_BUCKETS];
@@ -41,6 +44,7 @@ typedef struct {
     uint32_t bproc_max_us;
     uint64_t down_sum_us;
     uint32_t down_max_us;
+    uint32_t down_negative; /* t4-t3 按有符号差解释为负的样本数 */
 } ls_stats_t;
 
 typedef struct {
@@ -56,17 +60,20 @@ typedef struct {
     uint32_t recv;
     uint32_t timeout;
     uint32_t dup;
+    uint32_t ooo;
     uint32_t unsolicited;
     uint32_t loss_ppm;
     uint32_t bproc_mean_us;
     uint32_t bproc_max_us;
     uint32_t down_mean_us;
     uint32_t down_max_us;
+    uint32_t down_negative;
 } ls_summary_t;
 
 void ls_stats_reset(ls_stats_t *s);
 void ls_stats_on_rtt(ls_stats_t *s, uint32_t rtt_us);
 void ls_stats_on_segments(ls_stats_t *s, uint32_t bproc_us, uint32_t down_us);
+void ls_stats_on_down_negative(ls_stats_t *s);
 
 /* 桶映射：us -> [0, LS_HIST_BUCKETS)，以及桶的上下界 */
 uint32_t ls_hist_index(uint32_t us);

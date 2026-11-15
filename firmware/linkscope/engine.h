@@ -57,6 +57,7 @@ typedef struct {
     uint32_t pending_t1_us;
 
     uint32_t send_err;
+    uint32_t cfm_err;       /* 链路层异步写确认失败，由适配层累计后并入 SUM */
 
     /*
      * 被拒 RSP 的现场快照（只写不打印，打印交给任务上下文）。

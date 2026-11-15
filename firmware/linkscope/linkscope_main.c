@@ -155,11 +155,13 @@ static void print_summary(void)
     ls_summary_t sum = ls_stats_summary(&g_engine.st);
 
     osal_printk("# SUM n=%u p50=%u p90=%u p99=%u p999=%u max=%u mean=%u jit=%u "
-                "sent=%u recv=%u to=%u dup=%u bad=%u drop=%u "
-                "bproc=%u/%u dlt=%u/%u loss_ppm=%u\r\n",
+                "sent=%u recv=%u to=%u dup=%u ooo=%u bad=%u drop=%u rx_drop=%u send_err=%u cfm_err=%u "
+                "bproc=%u/%u dlt=%u/%u dlt_neg=%u loss_ppm=%u\r\n",
         sum.n, sum.p50_us, sum.p90_us, sum.p99_us, sum.p999_us, sum.max_us, sum.mean_us, sum.jitter_us,
-        sum.sent, sum.recv, sum.timeout, sum.dup, g_engine.st.bad_frame, g_engine.ring_drop,
-        sum.bproc_mean_us, sum.bproc_max_us, sum.down_mean_us, sum.down_max_us, sum.loss_ppm);
+        sum.sent, sum.recv, sum.timeout, sum.dup, sum.ooo, g_engine.st.bad_frame, g_engine.ring_drop,
+        g_rx_drop, g_engine.send_err, g_engine.cfm_err,
+        sum.bproc_mean_us, sum.bproc_max_us, sum.down_mean_us, sum.down_max_us,
+        sum.down_negative, sum.loss_ppm);
 }
 
 static void report_drain(void)
@@ -242,8 +244,11 @@ static void engine_loop(void)
                 uint32_t cfm_n = 0u;
                 uint32_t cfm_avg = 0u;
                 uint32_t cfm_max = 0u;
-                link->dbg(&cfm_n, &cfm_avg, &cfm_max);
-                osal_printk("%s wr(5s): cfm_n=%u avg=%uus max=%uus\r\n", LS_LOG, cfm_n, cfm_avg, cfm_max);
+                uint32_t cfm_err = 0u;
+                link->dbg(&cfm_n, &cfm_avg, &cfm_max, &cfm_err);
+                g_engine.cfm_err += cfm_err;
+                osal_printk("%s wr(5s): cfm_n=%u avg=%uus max=%uus err=%u\r\n",
+                    LS_LOG, cfm_n, cfm_avg, cfm_max, cfm_err);
             }
         }
 

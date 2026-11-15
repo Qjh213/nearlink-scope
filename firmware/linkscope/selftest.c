@@ -69,6 +69,10 @@ static void test_probe(void)
     buf[1] = PROBE_TYPE_RSP;
     check(probe_parse_req(buf, (uint16_t)n, &req_out) == PROBE_ERR_TYPE, "reject bad type");
     check(probe_parse_req(buf, 4u, &req_out) == PROBE_ERR_LEN, "reject short frame");
+    n = probe_build_req(buf, (uint16_t)sizeof(buf), &req_in);
+    buf[PROBE_REQ_HDR_LEN + 1u] ^= 0x01u;
+    check(probe_parse_req(buf, (uint16_t)n, &req_out) == PROBE_ERR_PAYLOAD,
+          "reject corrupt payload pattern");
 
     /* RSP */
     rsp_in.seq = 0x00FFu;

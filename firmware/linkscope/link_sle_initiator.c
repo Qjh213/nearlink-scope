@@ -56,6 +56,7 @@ static volatile uint32_t g_cfm_n;       /* 写确认次数 */
 static volatile uint32_t g_cfm_print_n; /* 启动后写确认诊断已打印次数；不随统计窗口清零 */
 static volatile uint32_t g_cfm_sum_us;  /* 写确认时延累计（A 本地时钟） */
 static volatile uint32_t g_cfm_max_us;
+static volatile uint32_t g_cfm_err;
 static volatile uint32_t g_send_us;     /* 最近一次 Write Request 的时刻 */
 static uint32_t g_ready_us;             /* 链路就绪时刻 */
 static uint32_t g_last_tune_us;         /* 上次发连接的参数更新请求的时刻 */
@@ -259,6 +260,7 @@ static void on_write_cfm(uint8_t client_id, uint16_t conn_id, ssapc_write_result
     unused(conn_id);
     unused(result);
     if (status != 0) {
+        g_cfm_err++;
         osal_printk("%s [A] write cfm error 0x%x\r\n", LS_LOG, (uint32_t)status);
         return;
     }
@@ -428,15 +430,17 @@ static void sle_poll(uint32_t now_ms)
  * 之前是启动以来的累计均值，换了间隔以后几十秒都还原不过来（0x64 那段的历史会把 750us 那段拉平），
  * 根本看不出"这个间隔下 cfm 是多少"。现在每 5s 报一次、报完清零，4 个点正好覆盖一个 20s 的间隔档。
  */
-static void sle_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us)
+static void sle_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us, uint32_t *errors)
 {
     uint32_t n = g_cfm_n;
     uint32_t sum = g_cfm_sum_us;
     uint32_t max = g_cfm_max_us;
+    uint32_t err = g_cfm_err;
 
     g_cfm_n = 0u;
     g_cfm_sum_us = 0u;
     g_cfm_max_us = 0u;
+    g_cfm_err = 0u;
 
     if (count != NULL) {
         *count = n;
@@ -446,6 +450,9 @@ static void sle_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us)
     }
     if (max_us != NULL) {
         *max_us = max;
+    }
+    if (errors != NULL) {
+        *errors = err;
     }
 }
 
@@ -459,7 +466,11 @@ static const link_ops_t g_sle_ops = {
     .send = sle_send,
     .ready = sle_ready,
     .poll = sle_poll,
+#if defined(CONFIG_LINK_SCOPE_SLE_WRITE_REQUEST)
     .dbg = sle_dbg,
+#else
+    .dbg = NULL,
+#endif
 };
 
 const link_ops_t *ls_link_ops_get(void)

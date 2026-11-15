@@ -106,6 +106,10 @@ static void on_rsp(ls_engine_t *e, const uint8_t *data, uint16_t len, uint32_t t
         e->st.bad_frame++;
         return;
     }
+    if (rsp.cfg_id != e->cfg_id) {
+        e->st.bad_frame++;
+        return;
+    }
     if (e->in_flight == 0u) {
         e->st.unsolicited++;
         e->rej_seq = rsp.seq;
@@ -137,6 +141,17 @@ static void on_rsp(ls_engine_t *e, const uint8_t *data, uint16_t len, uint32_t t
     inflight_drop(e, idx);
 
     e->st.recv++;
+    if (e->st.has_last_seq != 0u) {
+        int16_t seq_delta = (int16_t)(rsp.seq - e->st.last_seq);
+        if (seq_delta < 0) {
+            e->st.ooo++;
+        } else if (seq_delta > 0) {
+            e->st.last_seq = rsp.seq;
+        }
+    } else {
+        e->st.last_seq = rsp.seq;
+        e->st.has_last_seq = 1u;
+    }
     ls_stats_on_rtt(&e->st, rtt);
 
     /* B 端处理时延：同一时钟，精确 */
@@ -144,7 +159,12 @@ static void on_rsp(ls_engine_t *e, const uint8_t *data, uint16_t len, uint32_t t
     /* t4-t3 跨了两个时钟，含未知偏差 δ；只作为"回程+本级开销"的相对指标。
      * B 的时钟通常比 A 快，δ 会把 t4-t3 顶成负数（u32 回绕成 4.2e9），
      * 这种样本对分位数是有毒的，按 0 计（原始方向在 CSV 里也看不出来，所以直接归零）。 */
-    dlt = ((int32_t)(t4_us - rsp.t3_us) < 0) ? 0u : (uint32_t)(t4_us - rsp.t3_us);
+    if ((int32_t)(t4_us - rsp.t3_us) < 0) {
+        dlt = 0u;
+        ls_stats_on_down_negative(&e->st);
+    } else {
+        dlt = (uint32_t)(t4_us - rsp.t3_us);
+    }
     ls_stats_on_segments(&e->st, bproc, dlt);
 
     s.seq = rsp.seq;
@@ -198,6 +218,7 @@ void ls_engine_init(ls_engine_t *e, const link_ops_t *link,
     e->pending_seq = 0u;
     e->pending_t1_us = 0u;
     e->send_err = 0u;
+    e->cfm_err = 0u;
     e->rej_count = 0u;
     e->rej_seq = 0u;
     e->rej_pend = 0u;

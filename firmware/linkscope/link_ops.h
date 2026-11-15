@@ -15,7 +15,8 @@ typedef struct {
 
     /* 下面两个都是可选的诊断口，都在**任务上下文**里调用，不在回调里打印 */
     void (*poll)(uint32_t now_ms);          /* 每 5s 一次：链路层自己的周期性动作 */
-    void (*dbg)(uint32_t *count, uint32_t *avg_us, uint32_t *max_us);  /* 写确认时延 */
+    void (*dbg)(uint32_t *count, uint32_t *avg_us, uint32_t *max_us,
+                uint32_t *errors);  /* 写确认时延与失败数；不适用时函数指针为 NULL */
 } link_ops_t;
 
 #endif /* LINK_SCOPE_LINK_OPS_H */

@@ -54,6 +54,7 @@ static volatile uint32_t g_cfm_n;
 static volatile uint32_t g_cfm_print_n;
 static volatile uint32_t g_cfm_sum_us;
 static volatile uint32_t g_cfm_max_us;
+static volatile uint32_t g_cfm_err;
 static uint32_t g_send_us;
 
 static uint32_t g_last_tune_ms;
@@ -362,6 +363,8 @@ static void ble_write_cb(uint8_t client_id, uint16_t conn_id, uint16_t handle, g
             osal_printk("%s [A] write cfm #%u lat=%u us\r\n", LS_LOG,
                 (uint32_t)g_cfm_print_n, lat);
         }
+    } else if (handle == g_write_handle) {
+        g_cfm_err++;
     }
 #else
     unused(status);
@@ -512,15 +515,17 @@ static void ble_poll(uint32_t now_ms)
     }
 }
 
-static void ble_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us)
+static void ble_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us, uint32_t *errors)
 {
     uint32_t n = g_cfm_n;
     uint32_t sum = g_cfm_sum_us;
     uint32_t max = g_cfm_max_us;
+    uint32_t err = g_cfm_err;
 
     g_cfm_n = 0u;
     g_cfm_sum_us = 0u;
     g_cfm_max_us = 0u;
+    g_cfm_err = 0u;
 
     if (count != NULL) {
         *count = n;
@@ -530,6 +535,9 @@ static void ble_dbg(uint32_t *count, uint32_t *avg_us, uint32_t *max_us)
     }
     if (max_us != NULL) {
         *max_us = max;
+    }
+    if (errors != NULL) {
+        *errors = err;
     }
 }
 
@@ -543,7 +551,11 @@ static const link_ops_t g_ble_ops = {
     .send = ble_send,
     .ready = ble_ready,
     .poll = ble_poll,
+#if defined(CONFIG_LINK_SCOPE_BLE_WRITE_REQUEST)
     .dbg = ble_dbg,
+#else
+    .dbg = NULL,
+#endif
 };
 
 const link_ops_t *ls_link_ops_get(void)

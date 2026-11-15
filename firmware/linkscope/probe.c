@@ -95,6 +95,8 @@ int probe_build_req(uint8_t *out, uint16_t cap, const probe_req_t *req)
 int probe_parse_req(const uint8_t *in, uint16_t len, probe_req_t *out)
 {
     int ret;
+    uint16_t i;
+    uint16_t seq;
 
     if (in == NULL || out == NULL) {
         return PROBE_ERR_ARG;
@@ -107,7 +109,13 @@ int probe_parse_req(const uint8_t *in, uint16_t len, probe_req_t *out)
         return ret;
     }
 
-    out->seq = get_u16(&in[PROBE_OFF_SEQ]);
+    seq = get_u16(&in[PROBE_OFF_SEQ]);
+    for (i = PROBE_REQ_HDR_LEN; i < len; i++) {
+        if (in[i] != (uint8_t)((uint8_t)i + (uint8_t)(seq & 0xFFu))) {
+            return PROBE_ERR_PAYLOAD;
+        }
+    }
+    out->seq = seq;
     out->t1_us = get_u32(&in[PROBE_OFF_T1]);
     out->cfg_id = get_u32(&in[PROBE_OFF_CFG_ID]);
     out->frame_len = len;

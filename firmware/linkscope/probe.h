@@ -44,6 +44,7 @@
 #define PROBE_ERR_MAGIC             (-2)
 #define PROBE_ERR_TYPE              (-3)
 #define PROBE_ERR_LEN               (-4)
+#define PROBE_ERR_PAYLOAD           (-5)
 
 typedef struct {
     uint16_t seq;

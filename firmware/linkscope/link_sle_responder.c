@@ -19,7 +19,7 @@
 
 #define LS_ADV_HANDLE           1u
 #define LS_START_DELAY_MS       2000u
-#define LS_QUEUE_LEN            5u
+#define LS_QUEUE_LEN            16u
 #define LS_HB_TICKS             50u    /* 心跳间隔：50 tick × 20ms = 1s */
 #define LS_HB_FIRST_PRINTS      6u     /* 前 6 次无条件打印，便于确认"一个 REQ 都没收到" */
 #define LS_DISCONNECT_MSG       "sle_dis_connect"
@@ -33,6 +33,7 @@ typedef struct {
     uint32_t t1_us;
     uint32_t t2_us;
     uint32_t cfg_id;
+    uint32_t epoch;
 } ls_resp_event_t;
 
 #define LS_QUEUE_ITEM_SIZE      ((unsigned long)sizeof(ls_resp_event_t))
@@ -44,8 +45,11 @@ static uint8_t g_rsp_buf[PROBE_RSP_LEN];
 /* 诊断计数：回调里只自增，打印一律放到任务上下文（见 resp_hb） */
 static volatile uint32_t g_dbg_req;
 static volatile uint32_t g_dbg_bad;
+static volatile uint32_t g_dbg_q_drop;
+static volatile uint32_t g_dbg_stale_drop;
 static volatile uint32_t g_dbg_rsp;
 static volatile int32_t  g_dbg_err;
+static volatile uint32_t g_conn_epoch;
 
 static void resp_read_cb(uint8_t server_id, uint16_t conn_id, ssaps_req_read_cb_t *req, errcode_t status)
 {
@@ -79,9 +83,10 @@ static void resp_write_cb(uint8_t server_id, uint16_t conn_id, ssaps_req_write_c
     event.t1_us = in.t1_us;
     event.t2_us = t2;
     event.cfg_id = in.cfg_id;
+    event.epoch = g_conn_epoch;
     if (g_queue_ok == 0u ||
         osal_msg_queue_write_copy(g_queue_id, &event, (unsigned int)sizeof(event), 0) != 0) {
-        g_dbg_bad++;
+        g_dbg_q_drop++;
     }
 }
 
@@ -124,8 +129,9 @@ static void resp_hb(uint32_t *last_req, uint32_t *prints)
     if (*prints < LS_HB_FIRST_PRINTS) {
         (*prints)++;
     }
-    osal_printk("%s [B] hb req=%u bad=%u rsp=%u lasterr=0x%x\r\n", LS_LOG,
-        (uint32_t)g_dbg_req, (uint32_t)g_dbg_bad, (uint32_t)g_dbg_rsp, (uint32_t)g_dbg_err);
+    osal_printk("%s [B] hb req=%u bad=%u qdrop=%u stale=%u rsp=%u lasterr=0x%x\r\n", LS_LOG,
+        (uint32_t)g_dbg_req, (uint32_t)g_dbg_bad, (uint32_t)g_dbg_q_drop,
+        (uint32_t)g_dbg_stale_drop, (uint32_t)g_dbg_rsp, (uint32_t)g_dbg_err);
 }
 
 static void resp_msg_queue(uint8_t *buffer_addr, uint16_t buffer_size)
@@ -135,7 +141,9 @@ static void resp_msg_queue(uint8_t *buffer_addr, uint16_t buffer_size)
     unused(buffer_addr);
     unused(buffer_size);
     if (g_queue_ok != 0u) {
+        g_conn_epoch++;
         event.type = LS_RESP_EVENT_DISC;
+        event.epoch = g_conn_epoch;
         (void)osal_msg_queue_write_copy(g_queue_id, &event, (unsigned int)sizeof(event), 0);
     }
 }
@@ -177,7 +185,11 @@ void ls_responder_run(void)
                     osal_printk("%s [B] peer gone, re-announce\r\n", LS_LOG);
                     (void)sle_start_announce(LS_ADV_HANDLE);
                 } else if (event.type == LS_RESP_EVENT_RSP) {
-                    resp_send(&event);
+                    if (event.epoch == g_conn_epoch) {
+                        resp_send(&event);
+                    } else {
+                        g_dbg_stale_drop++;
+                    }
                 }
             } else {
                 /* 超时和参数错误都必须让出CPU，避免错误路径形成忙循环并触发NMI看门狗。 */

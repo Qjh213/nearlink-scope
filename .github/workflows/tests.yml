@@ -8,6 +8,10 @@ on:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      # 运行器的默认 stdio 编码是 cp1252，输出中文会直接抛 UnicodeEncodeError。
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

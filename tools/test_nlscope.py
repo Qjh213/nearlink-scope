@@ -1,7 +1,9 @@
 import queue
 import csv
 import hashlib
+import io
 import json
+import sys
 import tempfile
 import time
 import threading
@@ -13,8 +15,10 @@ from unittest import mock
 from nlscope_core import (LineParser, PlatformSignature, Session, count_csv_rows, evaluate_evidence,
                           feed_lines, format_evidence, format_preflight, load_csv, load_log,
                           preflight_items)
+import nlscope
 from nlscope import (FirmwareRegistry, M5_PROFILES, ScopeApp, discover_serial_ports, export_cli,
-                     file_identity, reproduce_markdown, reproduce_run, repository_identity)
+                     file_identity, print_summary, reproduce_markdown, reproduce_run,
+                     repository_identity)
 from experiment_specs import ExperimentSpec, expected_mapping, load_specs
 from wizard import ExperimentWizard
 from adapters import AdapterSpec, format_import_report, import_csv
@@ -1214,6 +1218,40 @@ class FirmwareRegistryTests(unittest.TestCase):
         identity = self.registry.identity("responder", "")
         self.assertEqual(identity["status"], "not_provided")
         self.assertFalse(identity["inherited"])
+
+
+class StdoutEncodingTests(unittest.TestCase):
+    """CI 的 stdout 是 cp1252，打印中文摘要会抛 UnicodeEncodeError（曾让 97 项里 2 项 error）。"""
+
+    def test_force_utf8_reconfigures_every_stream(self):
+        class Recorder:
+            def __init__(self):
+                self.calls = []
+
+            def reconfigure(self, **kwargs):
+                self.calls.append(kwargs)
+
+        a, b = Recorder(), Recorder()
+        nlscope._force_utf8((a, b))
+        expected = [{"encoding": "utf-8", "errors": "replace"}]
+        self.assertEqual(a.calls, expected)
+        self.assertEqual(b.calls, expected)
+
+    def test_force_utf8_skips_streams_it_cannot_reconfigure(self):
+        nlscope._force_utf8((object(),))  # 不抛就算通过
+
+    def test_chinese_summary_survives_a_cp1252_stdout(self):
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1252", newline="")
+        original = sys.stdout
+        try:
+            sys.stdout = stream
+            nlscope._force_utf8()
+            print_summary(Session())
+            stream.flush()
+        finally:
+            sys.stdout = original
+        self.assertIn("能力：", raw.getvalue().decode("utf-8"))
 
 
 if __name__ == "__main__":

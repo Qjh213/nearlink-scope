@@ -26,6 +26,27 @@ from adapters import AdapterSpec, format_import_report, import_csv
 
 APP_VERSION = "M6.0.0"
 
+
+def _force_utf8(streams=None) -> None:
+    """把文本流切到 UTF-8。
+
+    Windows 上控制台/重定向的默认编码可能是 cp1252（CI 里就是），打印中文摘要会抛
+    UnicodeEncodeError，把一次正常的"导出成功"变成崩溃。这里显式声明 UTF-8；
+    没有 reconfigure 的流（如测试里的替身）直接跳过。
+    """
+    for stream in (sys.stdout, sys.stderr) if streams is None else streams:
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            continue
+
+
+_force_utf8()
+
+
 def _load_default_specs() -> dict[str, ExperimentSpec]:
     """规格文件缺失/损坏时不能拖垮整个程序：退回两条通用规格并保留错误原因。"""
     global SPECS_LOAD_ERROR

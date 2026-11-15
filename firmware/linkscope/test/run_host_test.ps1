@@ -12,9 +12,10 @@ $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path $PSCommandPath -Parent)
 try {
 
-$out = (Join-Path (Resolve-Path '..\..\..\.tools\build\host-test') '').TrimEnd('\', '/')
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+$out = Join-Path $repoRoot '.tools\build\host-test'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
-$pyDir = (Join-Path (Resolve-Path '..\..\..') '.tools\py')
+$pyDir = Join-Path $repoRoot '.tools\py'
 if (Test-Path $pyDir) { $env:PYTHONPATH = $pyDir }
 
 function Get-Cc {

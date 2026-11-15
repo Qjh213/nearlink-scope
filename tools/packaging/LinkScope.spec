@@ -1,9 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 from pathlib import Path
 
 repo = Path(SPECPATH).resolve().parents[1]
 tools = repo / "tools"
+version_file = os.environ.get("LINKSCOPE_VERSION_FILE") or str(
+    repo / "tools" / "packaging" / "version_info.txt"
+)
 
 a = Analysis(
     [str(tools / "nlscope.py")],
@@ -36,7 +40,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version=str(repo / "tools" / "packaging" / "version_info.txt"),
+    version=version_file,
 )
 
 coll = COLLECT(

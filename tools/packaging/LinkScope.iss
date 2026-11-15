@@ -1,5 +1,9 @@
 #define MyAppName "NearLink LinkScope"
-#define MyAppVersion "0.3.6"
+; 版本号的唯一来源是 tools/nlscope.py 的 APP_VERSION，构建脚本用 /DMyAppVersion 传入；
+; 这里的默认值只用于绕过构建脚本、直接编译 .iss 时兜底。
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
 #define MyAppPublisher "Qjh213"
 #define MyAppURL "https://github.com/Qjh213/nearlink-scope"
 #define MyAppExeName "LinkScope.exe"
@@ -21,7 +25,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 LicenseFile=..\..\LICENSE
 OutputDir=..\..\dist\release
-OutputBaseFilename=NearLink-LinkScope-0.3.6-Setup
+OutputBaseFilename=NearLink-LinkScope-{#MyAppVersion}-Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

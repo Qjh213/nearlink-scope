@@ -24,10 +24,17 @@ winget install --id JRSoftware.InnoSetup --exact
 输出：
 
 ```text
-dist\release\NearLink-LinkScope-0.3.6-Setup.exe
-dist\release\NearLink-LinkScope-0.3.6-Portable.zip
+dist\release\NearLink-LinkScope-<APP_VERSION>-Setup.exe
+dist\release\NearLink-LinkScope-<APP_VERSION>-Portable.zip
 dist\release\SHA256SUMS.txt
 ```
+
+`<APP_VERSION>` 直接取自 `tools/nlscope.py` 的 `APP_VERSION`（当前为 `M5.0.9-rc5`）。
+Windows 文件资源里的四段版本号由脚本自动换算：`M5.0.9-rc5` → `5.0.9.5`。
+构建时会在 `build\pyinstaller\version_info.txt` 生成资源版本文件，不写回仓库；
+`tools\packaging\version_info.txt` 只是绕过脚本直接跑 PyInstaller 时的兜底。
+
+改版本号只需要改 `tools/nlscope.py` 一处，不要再去改 `.iss` 或 `.spec`。
 
 安装包为当前用户安装，不要求管理员权限。目标电脑不需要 Python，但仍需正确安装开发板 CH340 驱动。
 程序未做商业代码签名，Windows SmartScreen 可能显示“未知发布者”；发布时必须同时提供 SHA-256。

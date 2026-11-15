@@ -18,6 +18,7 @@ artifacts/firmware/*.fwpkg
 # 逆向分析文档属于知识材料，保留可入库
 artifacts/logs/M5/*/
 !artifacts/logs/M5/逆向QCOM/
+artifacts/logs/M6/
 
 # 编辑备份
 *.bak
